@@ -16,7 +16,7 @@ record), Redis (Celery broker, cache and locks), Celery workers + Celery Beat.
 | 1. Market data pipeline (fetch, raw landing, validation, Postgres, Redis cache, events, API) | Done; not yet run against the live sites |
 | 2. Analysis engine (indicators, support/resistance, strategies, forecast, signals) | Done |
 | 3. Email digests (subscribers, per-subscriber filters, SMTP, unsubscribe) | Done |
-| 4. React dashboard | Shell showing the latest quotes and market summary |
+| 4. React dashboard (overview and signals, stock charts, quotes, pipeline health) | Done; watchlists and backtesting still to come |
 
 ## Layout
 
@@ -98,6 +98,19 @@ the setup:
 python manage.py send_test_digest you@example.com
 ```
 
+## Dashboard
+
+The React app (`frontend/`) has four pages, using hash routes so it can be served as static files:
+
+| Page | Shows |
+|---|---|
+| Overview (`#/`) | Advancers, decliners and turnover, top movers, and the latest signals with direction and strength filters |
+| Stock (`#/stock/NABIL`) | A year of daily candles with SMA 20/50/200 and support/resistance lines, volume and RSI charts that scroll together, the latest indicators, trend projection and signals |
+| Quotes (`#/quotes`) | The latest snapshot for every symbol, filterable |
+| Pipeline (`#/status`) | The latest intraday, end-of-day and backfill run |
+
+Charts use [lightweight-charts](https://github.com/tradingview/lightweight-charts) and follow the OS light or dark setting.
+
 ## Run with Docker
 
 ```bash
@@ -143,6 +156,7 @@ lint-imports
 | `GET /api/market/summary` | Redis, with a Postgres fallback |
 | `GET /api/market/instruments` | Postgres |
 | `GET /api/market/candles?symbol=NABIL&tf=1D&start=&end=` | Postgres |
+| `GET /api/market/status` | Latest run of each kind, without error details |
 | `GET /api/market/runs` (staff only) | Postgres |
 | `GET /api/analysis/signals?direction=&min_strength=&run=` | Latest analysis run |
 | `GET /api/analysis/symbols/NABIL` | Latest indicators, levels, forecast and signals for one symbol |

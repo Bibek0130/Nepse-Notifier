@@ -21,6 +21,13 @@ class MarketSummaryView(APIView):
         return Response(queries.market_summary() or {})
 
 
+class PipelineStatusView(APIView):
+    """Latest intraday, end-of-day and backfill run, for the dashboard's health panel."""
+
+    def get(self, request):
+        return Response(queries.pipeline_status())
+
+
 class InstrumentListView(generics.ListAPIView):
     serializer_class = InstrumentSerializer
     pagination_class = None

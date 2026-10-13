@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 
+import { stockHref } from "../../app/router";
+
 export default function QuotesTable({ quotes }) {
   const [filter, setFilter] = useState("");
   const rows = useMemo(
@@ -26,7 +28,7 @@ export default function QuotesTable({ quotes }) {
           <tbody>
             {rows.map((q) => (
               <tr key={q.symbol}>
-                <td>{q.symbol}</td>
+                <td><a href={stockHref(q.symbol)}>{q.symbol}</a></td>
                 <td>{q.close}</td>
                 <td className={q.change_percent > 0 ? "up" : q.change_percent < 0 ? "down" : ""}>
                   {q.change_percent ?? "-"}

@@ -49,6 +49,13 @@ class ApiTests(TestCase):
     def test_instruments(self):
         self.assertEqual([i["symbol"] for i in self.client.get("/api/market/instruments").json()], ["NABIL", "UPPER"])
 
+    def test_pipeline_status_is_public_and_hides_errors(self):
+        IngestionRun.objects.create(kind="eod", status="failed", error="secret stack trace")
+        data = self.client.get("/api/market/status").json()
+        self.assertEqual(data["eod"]["status"], "failed")
+        self.assertNotIn("error", data["eod"])
+        self.assertIsNone(data["intraday"])
+
     def test_runs_are_staff_only(self):
         IngestionRun.objects.create(kind="intraday")
         self.assertEqual(self.client.get("/api/market/runs").status_code, 403)
