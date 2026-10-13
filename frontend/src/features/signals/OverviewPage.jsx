@@ -2,8 +2,10 @@ import { useState } from "react";
 
 import { analysisApi, marketApi } from "../../api/client";
 import { useApi } from "../../hooks/useApi";
+import { useWatchlist } from "../../hooks/useWatchlist";
 import MarketSummary from "../market/MarketSummary.jsx";
 import Movers from "../market/Movers.jsx";
+import WatchlistPanel from "../watchlist/WatchlistPanel.jsx";
 import SignalsTable from "./SignalsTable.jsx";
 
 export default function OverviewPage() {
@@ -15,6 +17,11 @@ export default function OverviewPage() {
     [direction, minStrength],
   );
   const report = signals.data;
+  // Watchlist filter needs all strengths to count signals for the panel, so filter here, not in the API.
+  const allSignals = useApi(() => analysisApi.signals({}), []);
+  const watchlist = useWatchlist();
+  const [watchOnly, setWatchOnly] = useState(false);
+  const rows = (report?.signals || []).filter((s) => !watchOnly || watchlist.has(s.symbol));
 
   return (
     <>
@@ -24,6 +31,7 @@ export default function OverviewPage() {
         <p className="muted">No market snapshot yet. Run an ingestion first.</p>
       )}
       <MarketSummary summary={summary.data} />
+      <WatchlistPanel signals={allSignals.data?.signals} />
       <Movers summary={summary.data} />
 
       <div className="section-head">
@@ -53,10 +61,13 @@ export default function OverviewPage() {
             <option value={3}>Strong only</option>
           </select>
         </label>
+        <label className="check">
+          <input type="checkbox" checked={watchOnly} onChange={(e) => setWatchOnly(e.target.checked)} /> Watchlist only
+        </label>
       </div>
       {signals.error && <p className="error">Could not load signals: {signals.error.message}</p>}
-      {report && !report.signals.length && <p className="muted">No signals match these filters.</p>}
-      {report?.signals.length > 0 && <SignalsTable signals={report.signals} />}
+      {report && !rows.length && <p className="muted">No signals match these filters.</p>}
+      {rows.length > 0 && <SignalsTable signals={rows} />}
     </>
   );
 }

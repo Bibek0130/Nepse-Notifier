@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from celery import current_app
 from django.core import mail
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
@@ -38,8 +39,13 @@ def run_events_inline(name, kwargs):
 @override_settings(SITE_URL="https://nepse.example.com")
 class DigestFlowTests(TestCase):
     def setUp(self):
+        cache.clear()  # the latest-quotes snapshot is cached; don't read one left by another test
         seed("SPIKE", [100] * 59 + [101], [1000] * 59 + [5000])  # volume spike (strength 2)
         seed("FLAT", [100] * 60, [1000] * 60)  # no signals
+        closing = datetime.combine(TODAY, time(15), tzinfo=NPT)  # the snapshot the quotes cache serves
+        market_repo.upsert_candles([
+            Candle(s, Timeframe.INTRADAY_3H, closing, TODAY, p, p, p, p, 1000, None, None, 20) for s, p in (("SPIKE", Decimal("101")), ("FLAT", Decimal("100")))
+        ])
         self.everyone = Subscriber.objects.create(email="all@example.com", min_strength=1)
         self.strong_only = Subscriber.objects.create(email="strong@example.com", min_strength=3)
         self.watchlist = Subscriber.objects.create(email="flat@example.com", min_strength=1, watchlist="flat")
@@ -52,8 +58,12 @@ class DigestFlowTests(TestCase):
     def test_candles_to_inbox(self):
         self.run_pipeline()
 
-        self.assertEqual([m.to for m in mail.outbox], [["all@example.com"]])
-        message = mail.outbox[0]
+        # flat@ has no signals but watches FLAT, so gets its price at market close.
+        self.assertEqual(sorted(m.to for m in mail.outbox), [["all@example.com"], ["flat@example.com"]])
+        watch_only = next(m for m in mail.outbox if m.to == ["flat@example.com"])
+        self.assertIn("YOUR WATCHLIST\nFLAT: 100", watch_only.body)
+        self.assertNotIn("SPIKE", watch_only.body)
+        message = next(m for m in mail.outbox if m.to == ["all@example.com"])
         self.assertTrue(message.subject.startswith("NEPSE Market close 2026-10-12"))
         self.assertIn("SPIKE", message.body)
         self.assertIn("Volume 5.0x the 20-day average", message.body)
@@ -61,13 +71,13 @@ class DigestFlowTests(TestCase):
         html = message.alternatives[0].content
         self.assertIn("<strong>SPIKE</strong>", html)
         self.assertEqual(message.extra_headers["List-Unsubscribe"], f"<https://nepse.example.com/notifications/unsubscribe/{self.everyone.unsubscribe_token}>")
-        self.assertEqual(Delivery.objects.get().status, "sent")
+        self.assertEqual(Delivery.objects.get(subscriber=self.everyone).status, "sent")
 
     def test_rerun_does_not_email_twice(self):
         self.run_pipeline()
         run_id = Digest.objects.get().analysis_run_id
         self.assertEqual(digests.prepare_digest(run_id), [])
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)
 
     def test_intraday_opt_out(self):
         self.everyone.include_intraday = False
@@ -82,14 +92,14 @@ class DigestFlowTests(TestCase):
         with mock.patch("modules.notifications.infrastructure.mailer.send", side_effect=SMTPException("server busy")):
             with self.assertRaises(Exception):
                 self.run_pipeline()
-        delivery = Delivery.objects.get()
+        delivery = Delivery.objects.get(subscriber=self.everyone)
         self.assertEqual((delivery.status, delivery.error), ("failed", "server busy"))
         self.assertGreaterEqual(delivery.attempts, 1)
 
         digests.send_delivery(delivery.pk)
         delivery.refresh_from_db()
         self.assertEqual(delivery.status, "sent")
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual([m.to for m in mail.outbox], [["all@example.com"]])
 
     def test_unsubscribe_link(self):
         response = self.client.get(f"/notifications/unsubscribe/{self.everyone.unsubscribe_token}")
@@ -98,7 +108,7 @@ class DigestFlowTests(TestCase):
         self.assertFalse(self.everyone.is_active)
         self.assertEqual(self.client.get("/notifications/unsubscribe/bogus").status_code, 404)
         self.run_pipeline()
-        self.assertEqual(mail.outbox, [])
+        self.assertNotIn(["all@example.com"], [m.to for m in mail.outbox])
 
     def test_send_test_digest_command(self):
         self.run_pipeline()

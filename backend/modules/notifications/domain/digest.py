@@ -27,6 +27,16 @@ class StockItem:
 
 
 @dataclass
+class WatchItem:
+    """A watched stock's latest price, shown whether or not it has signals."""
+
+    symbol: str
+    close: float | None = None
+    change_percent: float | None = None
+    signal_count: int = 0
+
+
+@dataclass
 class DigestContent:
     trading_date: str
     provisional: bool
@@ -35,6 +45,7 @@ class DigestContent:
     bearish: list[StockItem] = field(default_factory=list)
     activity: list[StockItem] = field(default_factory=list)
     market: dict | None = None
+    watchlist: list[WatchItem] = field(default_factory=list)
 
     @property
     def stock_count(self):
@@ -42,7 +53,8 @@ class DigestContent:
 
     @property
     def is_empty(self):
-        return self.stock_count == 0
+        """Nothing worth an email. A watchlist alone justifies one only at market close, not midday."""
+        return self.stock_count == 0 and (self.provisional or not self.watchlist)
 
 
 def wants_run(prefs: Preferences, provisional: bool) -> bool:
@@ -61,10 +73,28 @@ def _net_direction(signals):
     return "bullish" if score > 0 else "bearish" if score < 0 else "neutral"
 
 
-def build_digest(report: dict, prefs: Preferences, market: dict | None = None) -> DigestContent:
+def watchlist_items(prefs: Preferences, quotes: list[dict] | None, by_symbol: dict) -> list[WatchItem]:
+    if not prefs.watchlist or quotes is None:
+        return []
+    latest = {q["symbol"]: q for q in quotes}
+    items = []
+    for symbol in sorted(prefs.watchlist):
+        q = latest.get(symbol, {})
+        close = q.get("close")
+        items.append(WatchItem(
+            symbol=symbol,
+            close=float(close) if close is not None else None,
+            change_percent=q.get("change_percent"),
+            signal_count=len(by_symbol.get(symbol, [])),
+        ))
+    return items
+
+
+def build_digest(report: dict, prefs: Preferences, market: dict | None = None, quotes: list[dict] | None = None) -> DigestContent:
     """Group the report's signals by symbol and sort them into digest sections.
 
     Symbols with any strength-3 signal go under "strong"; the rest by net direction.
+    With a watchlist and ``quotes``, every watched stock's latest price is listed too.
     """
     content = DigestContent(trading_date=report["trading_date"], provisional=report["provisional"], market=market)
     by_symbol = {}
@@ -97,6 +127,7 @@ def build_digest(report: dict, prefs: Preferences, market: dict | None = None) -
 
     for section in (content.strong, content.bullish, content.bearish, content.activity):
         section.sort(key=lambda i: (-i.max_strength, DIRECTION_ORDER[i.direction], i.symbol))
+    content.watchlist = watchlist_items(prefs, quotes, by_symbol)
     return content
 
 
@@ -111,4 +142,6 @@ def subject_line(content: DigestContent) -> str:
         parts.append(f"{len(content.bearish)} bearish")
     if content.activity:
         parts.append(f"{len(content.activity)} unusual activity")
+    if not parts:
+        parts.append("your watchlist")
     return f"NEPSE {when} {content.trading_date}: " + ", ".join(parts)
