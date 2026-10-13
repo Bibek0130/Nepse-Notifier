@@ -8,8 +8,13 @@ def get_run_report(analysis_run_id: int) -> dict:
     return queries.run_report(analysis_run_id)
 
 
+def get_latest_run_id() -> int | None:
+    run = queries.latest_run()
+    return run.pk if run else None
+
+
 def get_latest_analysis(symbol: str) -> dict | None:
     return queries.latest_for_symbol(symbol)
 
 
-__all__ = ["SignalsGenerated", "get_latest_analysis", "get_run_report"]
+__all__ = ["SignalsGenerated", "get_latest_analysis", "get_latest_run_id", "get_run_report"]

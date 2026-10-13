@@ -9,6 +9,7 @@ type = forbidden
 source_modules =
     modules.marketdata.domain
     modules.analysis.domain
+    modules.notifications.domain
 forbidden_modules =
     django
     rest_framework
@@ -22,6 +23,7 @@ type = layers
 containers =
     modules.marketdata
     modules.analysis
+    modules.notifications
 layers =
     api
     application
@@ -82,6 +84,8 @@ forbidden_modules =
     modules.analysis.tasks
     modules.analysis.models
 allow_indirect_imports = True
+ignore_imports =
+    modules.*.tests.** -> modules.analysis.**
 
 [importlinter:contract:analysis-is-upstream-of-notifications]
 name = analysis does not depend on notifications or accounts
@@ -90,4 +94,12 @@ source_modules =
     modules.analysis
 forbidden_modules =
     modules.notifications
+    modules.accounts
+
+[importlinter:contract:notifications-is-downstream]
+name = notifications is the last module in the chain
+type = forbidden
+source_modules =
+    modules.notifications
+forbidden_modules =
     modules.accounts

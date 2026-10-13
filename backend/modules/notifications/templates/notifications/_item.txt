@@ -1,0 +1,4 @@
+{% autoescape off %}{{ item.symbol }}{% if item.close %} at {{ item.close }}{% endif %}{% if item.rsi is not None %}, RSI {{ item.rsi }}{% endif %}{% if item.support %}, support {{ item.support }}{% endif %}{% if item.resistance %}, resistance {{ item.resistance }}{% endif %}
+{% for m in item.messages %}  - {{ m }}
+{% endfor %}
+{% endautoescape %}
