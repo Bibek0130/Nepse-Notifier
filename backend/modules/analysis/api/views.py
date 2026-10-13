@@ -38,3 +38,13 @@ class SymbolAnalysisView(APIView):
         if result is None:
             raise NotFound(f"No analysis for {symbol.upper()} yet")
         return Response(result)
+
+
+class BacktestView(APIView):
+    """Results of the latest backtest: how each strategy's past signals played out."""
+
+    def get(self, request):
+        result = queries.latest_backtest()
+        if result is None:
+            raise NotFound("No backtest has run yet")
+        return Response(result)

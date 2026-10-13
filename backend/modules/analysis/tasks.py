@@ -1,8 +1,11 @@
 """Celery entry points for analysis: fan out one task per symbol, then finish the run."""
 import logging
+from datetime import timedelta
 
 from celery import chord, shared_task
+from django.utils import timezone
 
+from .application import backtest
 from .application import run as use_cases
 
 logger = logging.getLogger(__name__)
@@ -32,3 +35,10 @@ def analyze_symbol(run_id, symbol):
 @shared_task
 def finish_run(run_id):
     return use_cases.finish_run(run_id).pk
+
+
+@shared_task(time_limit=60 * 60)
+def run_backtest(days=365):
+    """Weekly: replay the strategies over the last ``days`` and store the results."""
+    end = timezone.localdate()
+    return backtest.run_backtest(end - timedelta(days=days), end).pk

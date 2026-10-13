@@ -1,4 +1,4 @@
-from ..infrastructure.models import AnalysisRun, Signal, SymbolAnalysis
+from ..infrastructure.models import AnalysisRun, BacktestRun, Signal, SymbolAnalysis
 
 
 def signal_dict(s: Signal):
@@ -50,3 +50,20 @@ def latest_for_symbol(symbol):
 
 def latest_run():
     return AnalysisRun.objects.filter(status=AnalysisRun.Status.OK).order_by("-finished_at").first()
+
+
+def latest_backtest():
+    run = BacktestRun.objects.filter(status=BacktestRun.Status.OK).order_by("-finished_at").first()
+    if run is None:
+        return None
+    return {
+        "id": run.pk,
+        "start_date": run.start_date.isoformat(),
+        "end_date": run.end_date.isoformat(),
+        "finished_at": run.finished_at.isoformat(),
+        "horizons": run.horizons,
+        "symbols_tested": run.symbols_tested,
+        "signals_evaluated": run.signals_evaluated,
+        "results": run.results,
+        "baseline": run.baseline,
+    }
