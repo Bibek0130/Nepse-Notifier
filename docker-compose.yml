@@ -1,0 +1,75 @@
+# Local stack: Postgres (system of record), Redis (Celery broker + cache),
+# Django API, one Celery worker per queue, a single Beat, and the React dev server.
+x-backend: &backend
+  build: ./backend
+  env_file: .env
+  environment:
+    DJANGO_SETTINGS_MODULE: config.settings.dev
+    POSTGRES_HOST: postgres
+    REDIS_URL: redis://redis:6379
+  volumes:
+    - ./backend:/app
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nepse}
+      POSTGRES_USER: ${POSTGRES_USER:-nepse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nepse}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nepse}"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  api:
+    <<: *backend
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    ports: ["8000:8000"]
+
+  worker-ingest:
+    <<: *backend
+    command: celery -A config worker -Q ingest,default -l info --concurrency 2 -n ingest@%h
+
+  worker-analysis:
+    <<: *backend
+    command: celery -A config worker -Q analysis -l info -n analysis@%h
+
+  worker-notify:
+    <<: *backend
+    command: celery -A config worker -Q notify -l info --concurrency 2 -n notify@%h
+
+  beat:
+    <<: *backend
+    # Exactly one Beat instance, or scheduled runs fire twice.
+    command: celery -A config beat -l info
+
+  frontend:
+    image: node:22
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      API_URL: http://api:8000
+    volumes:
+      - ./frontend:/app
+    ports: ["5173:5173"]
+    depends_on: [api]
+
+volumes:
+  pgdata:

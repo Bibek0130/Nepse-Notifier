@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: nepse
+          POSTGRES_USER: nepse
+          POSTGRES_PASSWORD: nepse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nepse" --health-interval 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements-dev.txt
+      - name: Module boundaries
+        run: lint-imports
+      - name: Migrations are up to date
+        run: python manage.py makemigrations --check --dry-run
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+      - name: Tests (Postgres)
+        run: python manage.py test
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          TEST_WITH_POSTGRES: "1"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run build

@@ -1,0 +1,3 @@
+-r requirements.txt
+import-linter>=2.1
+flower>=2.0

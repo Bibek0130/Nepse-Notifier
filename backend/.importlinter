@@ -1,0 +1,64 @@
+[importlinter]
+root_packages =
+    modules
+include_external_packages = True
+
+[importlinter:contract:domain-is-pure]
+name = Domain layers are plain Python (no Django, Celery or HTTP)
+type = forbidden
+source_modules =
+    modules.marketdata.domain
+forbidden_modules =
+    django
+    rest_framework
+    celery
+    requests
+    bs4
+
+[importlinter:contract:marketdata-layers]
+name = marketdata layers only depend downwards
+type = layers
+containers =
+    modules.marketdata
+layers =
+    api
+    application
+    infrastructure
+    domain
+
+[importlinter:contract:use-public-interfaces]
+name = Other modules use marketdata only through marketdata.public
+type = forbidden
+source_modules =
+    modules.analysis
+    modules.notifications
+    modules.accounts
+forbidden_modules =
+    modules.marketdata.domain
+    modules.marketdata.application
+    modules.marketdata.infrastructure
+    modules.marketdata.api
+    modules.marketdata.tasks
+    modules.marketdata.models
+allow_indirect_imports = True
+
+[importlinter:contract:marketdata-is-upstream]
+name = marketdata does not depend on downstream modules
+type = forbidden
+source_modules =
+    modules.marketdata
+forbidden_modules =
+    modules.analysis
+    modules.notifications
+    modules.accounts
+
+[importlinter:contract:shared-is-kernel]
+name = shared kernel depends on no domain module
+type = forbidden
+source_modules =
+    modules.shared
+forbidden_modules =
+    modules.marketdata
+    modules.analysis
+    modules.notifications
+    modules.accounts
