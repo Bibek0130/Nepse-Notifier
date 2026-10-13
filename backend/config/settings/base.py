@@ -171,3 +171,20 @@ MARKETDATA = {
     "CROSS_SOURCE_TOLERANCE_PERCENT": 0.5,
     "INGEST_LOCK_SECONDS": 10 * 60,
 }
+
+# --- Email -------------------------------------------------------------------
+# SMTP when EMAIL_HOST is set (e.g. Gmail, SES, Mailgun); otherwise emails print to the console.
+EMAIL_HOST = env("EMAIL_HOST", "")
+EMAIL_BACKEND = env(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST else "django.core.mail.backends.console.EmailBackend",
+)
+EMAIL_PORT = int(env("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_TIMEOUT = 30
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "NEPSE Notifier <noreply@localhost>")
+
+# Public base URL, used for unsubscribe links in emails.
+SITE_URL = env("SITE_URL", "http://localhost:8000")

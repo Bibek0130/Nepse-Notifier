@@ -15,7 +15,7 @@ record), Redis (Celery broker, cache and locks), Celery workers + Celery Beat.
 |---|---|
 | 1. Market data pipeline (fetch, raw landing, validation, Postgres, Redis cache, events, API) | Done; not yet run against the live sites |
 | 2. Analysis engine (indicators, support/resistance, strategies, forecast, signals) | Done |
-| 3. Email digests | Planned |
+| 3. Email digests (subscribers, per-subscriber filters, SMTP, unsubscribe) | Done |
 | 4. React dashboard | Shell showing the latest quotes and market summary |
 
 ## Layout
@@ -27,7 +27,7 @@ backend/
     shared/                market calendar, domain event bus, Redis locks
     marketdata/            domain/ application/ infrastructure/ api/ + public.py
     analysis/              indicators, levels, strategies, signals; publishes SignalsGenerated
-    notifications/         email digests (step 3)
+    notifications/         subscribers, digests, email delivery; subscribes to SignalsGenerated
     accounts/              users and watchlists
   .importlinter            module boundary rules, checked in CI
 frontend/                  React app (src/features/<domain>/)
@@ -73,6 +73,30 @@ Intraday runs append the latest snapshot as a provisional bar for today.
 Support and resistance are clustered swing highs and lows (within 1.5%) from the
 last 120 sessions. Thresholds live in `StrategyConfig`
 (`modules/analysis/domain/strategies.py`).
+
+## Email digests
+
+`SignalsGenerated` triggers `on_signals_generated` on the `notify` queue. It builds one
+`Digest` per analysis run and a personalised `Delivery` for each active `Subscriber`,
+then sends each email as its own task, rate-limited to 30 a minute and retried on SMTP errors.
+Re-running a digest never emails anyone twice.
+
+Manage subscribers in Django admin (**Notifications → Subscribers**). Each subscriber has:
+
+* **Min strength:** 1 for every signal, 2 for moderate and strong (the default), 3 for strong only.
+* **Watchlist:** comma-separated symbols. Leave it blank to get all stocks.
+* **Include intraday:** also receive the midday updates, not only the market-close digest.
+
+Subscribers who have no matching signals that run get no email. Every email has a
+one-click unsubscribe link (also in the `List-Unsubscribe` header).
+
+Set `EMAIL_HOST` and related settings in `.env` to send through SMTP (Gmail, SES,
+Mailgun and so on). Without `EMAIL_HOST`, emails print to the worker console. To check
+the setup:
+
+```bash
+python manage.py send_test_digest you@example.com
+```
 
 ## Run with Docker
 

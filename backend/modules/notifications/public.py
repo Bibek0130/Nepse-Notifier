@@ -1,1 +1,1 @@
-"""Public interface of the notifications module. Filled in step 3."""
+"""Public interface of the notifications module. Nothing depends on it yet."""
