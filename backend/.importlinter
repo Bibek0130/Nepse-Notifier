@@ -43,6 +43,9 @@ forbidden_modules =
     modules.marketdata.tasks
     modules.marketdata.models
 allow_indirect_imports = True
+# Tests may seed another module's data directly; production code may not.
+ignore_imports =
+    modules.*.tests.** -> modules.marketdata.**
 
 [importlinter:contract:marketdata-is-upstream]
 name = marketdata does not depend on downstream modules
