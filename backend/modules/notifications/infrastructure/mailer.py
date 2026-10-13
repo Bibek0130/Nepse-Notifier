@@ -7,13 +7,23 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 
 
+def _absolute(name, subscriber):
+    return settings.SITE_URL.rstrip("/") + reverse(name, args=[subscriber.unsubscribe_token])
+
+
 def unsubscribe_url(subscriber):
-    path = reverse("notifications-unsubscribe", args=[subscriber.unsubscribe_token])
-    return settings.SITE_URL.rstrip("/") + path
+    return _absolute("notifications-unsubscribe", subscriber)
+
+
+def preferences_url(subscriber):
+    return _absolute("notifications-preferences", subscriber)
 
 
 def render(content, subscriber):
-    context = {"digest": content, "subscriber": subscriber, "unsubscribe_url": unsubscribe_url(subscriber), "site_url": settings.SITE_URL}
+    context = {
+        "digest": content, "subscriber": subscriber, "unsubscribe_url": unsubscribe_url(subscriber),
+        "preferences_url": preferences_url(subscriber), "site_url": settings.SITE_URL,
+    }
     text = re.sub(r"\n{3,}", "\n\n", render_to_string("notifications/digest.txt", context)).strip() + "\n"
     return text, render_to_string("notifications/digest.html", context)
 

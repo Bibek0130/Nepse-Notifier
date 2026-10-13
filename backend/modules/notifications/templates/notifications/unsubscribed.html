@@ -4,5 +4,6 @@
 <body style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;max-width:480px;margin:48px auto;padding:0 16px;color:#1d1d1b;">
   <h1 style="font-size:20px;">You're unsubscribed</h1>
   <p>{{ email }} will no longer receive NEPSE digests.</p>
+  <p><a href="{% url 'notifications-preferences' token %}">Changed your mind, or only want fewer emails? Change your settings.</a></p>
 </body>
 </html>

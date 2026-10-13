@@ -30,6 +30,7 @@ def prepare_digest(analysis_run_id):
     """
     report = analysis.get_run_report(analysis_run_id)
     market = marketdata.get_market_summary()
+    quotes = marketdata.get_latest_quotes()
     digest, _ = Digest.objects.get_or_create(
         analysis_run_id=analysis_run_id,
         defaults={"trading_date": report["trading_date"], "provisional": report["provisional"], "signals_count": len(report["signals"])},
@@ -40,7 +41,7 @@ def prepare_digest(analysis_run_id):
         prefs = preferences_for(subscriber)
         if not wants_run(prefs, digest.provisional):
             continue
-        content = build_digest(report, prefs, market)
+        content = build_digest(report, prefs, market, quotes)
         if content.is_empty:
             continue
         text, html = mailer.render(content, subscriber)
@@ -82,4 +83,22 @@ def unsubscribe(token):
     if subscriber and subscriber.is_active:
         subscriber.is_active = False
         subscriber.save(update_fields=["is_active"])
+    return subscriber
+
+
+def subscriber_for_token(token):
+    return Subscriber.objects.filter(unsubscribe_token=token).first()
+
+
+def known_symbols():
+    return set(marketdata.list_symbols())
+
+
+def update_preferences(subscriber, *, watchlist, min_strength, include_intraday, is_active):
+    """Save a subscriber's own settings from the link in their digest."""
+    subscriber.watchlist = ", ".join(sorted(watchlist))
+    subscriber.min_strength = min_strength
+    subscriber.include_intraday = include_intraday
+    subscriber.is_active = is_active
+    subscriber.save(update_fields=["watchlist", "min_strength", "include_intraday", "is_active"])
     return subscriber
