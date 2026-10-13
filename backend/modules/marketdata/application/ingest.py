@@ -109,15 +109,11 @@ def _run_pipeline(log, kind, now, trading_date, sources, force, is_trading_day):
     with transaction.atomic():
         repositories.upsert_candles(result.accepted, run=run, source=source.name)
         repositories.record_issues(run, result.quarantined + result.flagged)
-        for timeframe in sorted({c.timeframe for c in result.accepted}):
-            events.publish(
-                CandlesIngested(
-                    run_id=run.pk,
-                    timeframe=timeframe.value,
-                    trading_date=trading_date.isoformat(),
-                    symbols=sorted({c.symbol for c in result.accepted if c.timeframe == timeframe}),
-                )
-            )
+        # One event per run: end of day announces the closing bars, intraday the snapshot.
+        timeframe = Timeframe.DAILY if kind == RunKind.END_OF_DAY else Timeframe.INTRADAY_3H
+        symbols = sorted({c.symbol for c in result.accepted if c.timeframe == timeframe})
+        if symbols:
+            events.publish(CandlesIngested(run_id=run.pk, timeframe=timeframe.value, trading_date=trading_date.isoformat(), symbols=symbols))
     log.mark("persist", "ok", rows=len(result.accepted))
 
     # 7. Cache the latest snapshot for the API.
