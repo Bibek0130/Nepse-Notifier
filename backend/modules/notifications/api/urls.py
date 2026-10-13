@@ -4,4 +4,5 @@ from . import views
 
 urlpatterns = [
     path("unsubscribe/<str:token>", views.unsubscribe, name="notifications-unsubscribe"),
+    path("preferences/<str:token>", views.preferences, name="notifications-preferences"),
 ]

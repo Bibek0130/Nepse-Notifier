@@ -2,6 +2,7 @@ import { analysisApi, marketApi } from "../../api/client";
 import { stockHref } from "../../app/router";
 import { useApi } from "../../hooks/useApi";
 import SignalsTable from "../signals/SignalsTable.jsx";
+import StarButton from "../watchlist/StarButton.jsx";
 import StockCharts from "./StockCharts.jsx";
 
 const num = (v, digits = 2) => (v == null ? "-" : Number(v).toLocaleString(undefined, { maximumFractionDigits: digits }));
@@ -86,7 +87,7 @@ export default function StockPage({ symbol }) {
   return (
     <>
       <div className="section-head">
-        <h1>{symbol || "Stock"}</h1>
+        <h1>{symbol || "Stock"} {symbol && <StarButton symbol={symbol} withLabel />}</h1>
         <SymbolPicker symbol={symbol} />
       </div>
       {!symbol && <p className="muted">Pick a stock to see its chart, indicators and signals.</p>}

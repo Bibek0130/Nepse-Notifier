@@ -11,6 +11,7 @@
   --series-2: #eb6834;
   --series-3: #1baf7a;
   --accent: #2a78d6;
+  --warn: #b7791f;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -27,6 +28,7 @@
     --series-2: #d95926;
     --series-3: #199e70;
     --accent: #6aa8f0;
+    --warn: #e0a83a;
   }
 }
 body { margin: 0; background: var(--bg); color: var(--text); }
@@ -95,3 +97,12 @@ table.signals td.message { white-space: normal; min-width: 260px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
 .chart-label { font-size: 0.85rem; margin: 12px 0 4px; }
+
+.star { background: none; border: 0; padding: 0 2px; font: inherit; color: var(--muted); cursor: pointer; line-height: 1; }
+.star.on { color: var(--warn); }
+.star:hover { color: var(--text); }
+h1 .star { font-size: 1rem; font-weight: 500; vertical-align: middle; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; }
+label.check { display: inline-flex; align-items: center; gap: 6px; }
+.filters .filter { margin-bottom: 0; }
+.filters { align-items: center; }
+section.watchlist { margin-bottom: 16px; }

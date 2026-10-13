@@ -51,3 +51,24 @@ class DigestTests(SimpleTestCase):
     def test_subject(self):
         content = build_digest(REPORT, Preferences(min_strength=2))
         self.assertEqual(subject_line(content), "NEPSE Market close 2026-10-12: 1 strong, 1 bullish, 1 bearish, 1 unusual activity")
+
+    def test_watchlist_prices_listed_even_without_signals(self):
+        quotes = [
+            {"symbol": "UPPER", "close": "210.50", "change_percent": -1.2},
+            {"symbol": "NICA", "close": "400.00", "change_percent": 0.5},
+        ]
+        prefs = Preferences(min_strength=3, watchlist=frozenset({"UPPER", "NICA", "GONE"}))
+        content = build_digest(REPORT, prefs, quotes=quotes)
+        self.assertEqual(content.stock_count, 0)
+        self.assertFalse(content.is_empty)
+        self.assertEqual(
+            [(w.symbol, w.close, w.change_percent, w.signal_count) for w in content.watchlist],
+            [("GONE", None, None, 0), ("NICA", 400.0, 0.5, 0), ("UPPER", 210.5, -1.2, 0)],
+        )
+        self.assertEqual(subject_line(content), "NEPSE Market close 2026-10-12: your watchlist")
+
+    def test_watchlist_counts_signals_and_no_watchlist_means_no_section(self):
+        quotes = [{"symbol": "UPPER", "close": "210.50", "change_percent": -1.2}]
+        content = build_digest(REPORT, Preferences(min_strength=1, watchlist=frozenset({"UPPER"})), quotes=quotes)
+        self.assertEqual(content.watchlist[0].signal_count, 1)
+        self.assertEqual(build_digest(REPORT, Preferences(min_strength=1), quotes=quotes).watchlist, [])

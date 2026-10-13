@@ -16,7 +16,7 @@ record), Redis (Celery broker, cache and locks), Celery workers + Celery Beat.
 | 1. Market data pipeline (fetch, raw landing, validation, Postgres, Redis cache, events, API) | Done; not yet run against the live sites |
 | 2. Analysis engine (indicators, support/resistance, strategies, forecast, signals) | Done |
 | 3. Email digests (subscribers, per-subscriber filters, SMTP, unsubscribe) | Done |
-| 4. React dashboard (overview and signals, stock charts, quotes, pipeline health) | Done; watchlists and backtesting still to come |
+| 4. React dashboard (overview and signals, stock charts, quotes, pipeline health) | Done, with watchlists; backtesting still to come |
 
 ## Layout
 
@@ -98,6 +98,10 @@ the setup:
 python manage.py send_test_digest you@example.com
 ```
 
+## Watchlists in email
+
+Every digest links to a settings page (`/notifications/preferences/<token>`) where a subscriber can set their watchlist, which signal strengths they get, and whether they get midday updates, or turn digests back on after unsubscribing. Symbols are checked against the listed stocks. Subscribers with a watchlist get a "Your watchlist" section with each watched stock's price and change. At market close they get it even on days with no signals; midday updates still go out only when there are signals.
+
 ## Dashboard
 
 The React app (`frontend/`) has four pages, using hash routes so it can be served as static files:
@@ -108,6 +112,8 @@ The React app (`frontend/`) has four pages, using hash routes so it can be serve
 | Stock (`#/stock/NABIL`) | A year of daily candles with SMA 20/50/200 and support/resistance lines, volume and RSI charts that scroll together, the latest indicators, trend projection and signals |
 | Quotes (`#/quotes`) | The latest snapshot for every symbol, filterable |
 | Pipeline (`#/status`) | The latest intraday, end-of-day and backfill run |
+
+Star a stock (☆) on its page or in Quotes to add it to your watchlist. The overview then shows your starred stocks' prices and signal counts, and Overview and Quotes can be filtered to the watchlist. Starred stocks are saved in the browser.
 
 Charts use [lightweight-charts](https://github.com/tradingview/lightweight-charts) and follow the OS light or dark setting.
 
