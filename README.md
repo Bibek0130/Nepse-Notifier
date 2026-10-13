@@ -14,7 +14,7 @@ record), Redis (Celery broker, cache and locks), Celery workers + Celery Beat.
 | Step | State |
 |---|---|
 | 1. Market data pipeline (fetch, raw landing, validation, Postgres, Redis cache, events, API) | Done; not yet run against the live sites |
-| 2. Analysis engine (indicators, strategies, signals) | Next. `analysis` already receives `CandlesIngested` events |
+| 2. Analysis engine (indicators, support/resistance, strategies, forecast, signals) | Done |
 | 3. Email digests | Planned |
 | 4. React dashboard | Shell showing the latest quotes and market summary |
 
@@ -26,7 +26,7 @@ backend/
   modules/
     shared/                market calendar, domain event bus, Redis locks
     marketdata/            domain/ application/ infrastructure/ api/ + public.py
-    analysis/              subscribes to CandlesIngested (step 2)
+    analysis/              indicators, levels, strategies, signals; publishes SignalsGenerated
     notifications/         email digests (step 3)
     accounts/              users and watchlists
   .importlinter            module boundary rules, checked in CI
@@ -52,6 +52,27 @@ day) Nepal time, Sunday to Thursday. Each run goes through these stages:
 8. **Publish:** `CandlesIngested` is dispatched to subscribers after the commit.
 
 Every run is recorded in `IngestionRun`, with per-stage status. You can see it in Django admin and at `/api/market/runs`.
+
+## Analysis
+
+When `CandlesIngested` arrives, `analysis` starts an `AnalysisRun` and fans out one
+`analyze_symbol` task per symbol as a Celery chord. `finish_run` then publishes
+`SignalsGenerated` for notifications. End-of-day runs analyse the closing bars.
+Intraday runs append the latest snapshot as a provisional bar for today.
+
+| Strategy | Signal |
+|---|---|
+| `trend` | Golden or death cross: the 50-day SMA crosses the 200-day SMA (strength 3) |
+| `ma_cross` | Close crosses the 50-day SMA (2) |
+| `rsi` | RSI(14) at or above 70 is overbought, at or below 30 is oversold (1), and recovering out of either zone is stronger (2) |
+| `macd` | MACD(12,26,9) crosses its signal line (2) |
+| `breakout` | Close goes through yesterday's resistance or support: 3 with at least 1.5x average volume, 1 without |
+| `volume` / `transactions` | Today's volume or number of trades is at least 2x the 20-day average |
+| `forecast` | A linear trend over 20 sessions with a good fit (R² ≥ 0.6) is projected 5 sessions ahead. It describes the trend and is not a prediction |
+
+Support and resistance are clustered swing highs and lows (within 1.5%) from the
+last 120 sessions. Thresholds live in `StrategyConfig`
+(`modules/analysis/domain/strategies.py`).
 
 ## Run with Docker
 
@@ -99,6 +120,8 @@ lint-imports
 | `GET /api/market/instruments` | Postgres |
 | `GET /api/market/candles?symbol=NABIL&tf=1D&start=&end=` | Postgres |
 | `GET /api/market/runs` (staff only) | Postgres |
+| `GET /api/analysis/signals?direction=&min_strength=&run=` | Latest analysis run |
+| `GET /api/analysis/symbols/NABIL` | Latest indicators, levels, forecast and signals for one symbol |
 
 ## Caveats
 

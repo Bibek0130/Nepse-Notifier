@@ -1,1 +1,15 @@
-"""Public interface of the analysis module (signals, indicator values). Filled in step 2."""
+"""The analysis module's public interface. Returns plain dicts, never ORM models."""
+from .application import queries
+from .events import SignalsGenerated
+
+
+def get_run_report(analysis_run_id: int) -> dict:
+    """Everything a digest needs for one run: run info, signals, and per-symbol levels."""
+    return queries.run_report(analysis_run_id)
+
+
+def get_latest_analysis(symbol: str) -> dict | None:
+    return queries.latest_for_symbol(symbol)
+
+
+__all__ = ["SignalsGenerated", "get_latest_analysis", "get_run_report"]

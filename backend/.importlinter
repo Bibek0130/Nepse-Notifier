@@ -8,6 +8,7 @@ name = Domain layers are plain Python (no Django, Celery or HTTP)
 type = forbidden
 source_modules =
     modules.marketdata.domain
+    modules.analysis.domain
 forbidden_modules =
     django
     rest_framework
@@ -15,11 +16,12 @@ forbidden_modules =
     requests
     bs4
 
-[importlinter:contract:marketdata-layers]
-name = marketdata layers only depend downwards
+[importlinter:contract:module-layers]
+name = Module layers only depend downwards
 type = layers
 containers =
     modules.marketdata
+    modules.analysis
 layers =
     api
     application
@@ -41,6 +43,9 @@ forbidden_modules =
     modules.marketdata.tasks
     modules.marketdata.models
 allow_indirect_imports = True
+# Tests may seed another module's data directly; production code may not.
+ignore_imports =
+    modules.*.tests.** -> modules.marketdata.**
 
 [importlinter:contract:marketdata-is-upstream]
 name = marketdata does not depend on downstream modules
@@ -60,5 +65,29 @@ source_modules =
 forbidden_modules =
     modules.marketdata
     modules.analysis
+    modules.notifications
+    modules.accounts
+
+[importlinter:contract:use-analysis-public]
+name = Other modules use analysis only through analysis.public
+type = forbidden
+source_modules =
+    modules.notifications
+    modules.accounts
+forbidden_modules =
+    modules.analysis.domain
+    modules.analysis.application
+    modules.analysis.infrastructure
+    modules.analysis.api
+    modules.analysis.tasks
+    modules.analysis.models
+allow_indirect_imports = True
+
+[importlinter:contract:analysis-is-upstream-of-notifications]
+name = analysis does not depend on notifications or accounts
+type = forbidden
+source_modules =
+    modules.analysis
+forbidden_modules =
     modules.notifications
     modules.accounts
