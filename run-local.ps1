@@ -86,6 +86,12 @@ Django migrate --verbosity 0
 
 # --- Email ------------------------------------------------------------------
 $envFile = Join-Path $backend ".env"
+$emailOn = (Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "^\s*EMAIL_HOST\s*=\s*\S" -Quiet)
+$interactive = -not [Console]::IsInputRedirected
+if ($interactive -and -not $SetupEmail -and -not $emailOn) {
+    $answer = Read-Host "`nDigests are not emailed yet, only printed here. Set up Gmail sending now? (y/n)"
+    if ($answer -match "^\s*y") { $SetupEmail = $true }
+}
 if ($SetupEmail) {
     Step "Setting up Gmail for sending digests"
     Write-Host "Gmail needs an app password, not your normal password. Turn on 2-Step Verification,"
@@ -94,28 +100,39 @@ if ($SetupEmail) {
     $secure = Read-Host "App password (16 letters)" -AsSecureString
     $appPassword = [System.Net.NetworkCredential]::new("", $secure).Password -replace "\s", ""
     if (-not $gmail -or -not $appPassword) { throw "Both the Gmail address and the app password are needed." }
-    $kept = @()
-    if (Test-Path $envFile) { $kept = @(Get-Content $envFile | Where-Object { $_ -notmatch "^\s*(EMAIL_\w+|DEFAULT_FROM_EMAIL)\s*=" }) }
-    $lines = @($kept) + @(
-        "EMAIL_HOST=smtp.gmail.com",
-        "EMAIL_PORT=587",
-        "EMAIL_USE_TLS=true",
-        "EMAIL_HOST_USER=$gmail",
-        "EMAIL_HOST_PASSWORD=$appPassword",
-        "DEFAULT_FROM_EMAIL=NEPSE Notifier <$gmail>"
-    )
-    [System.IO.File]::WriteAllLines($envFile, [string[]]$lines)
-    Write-Host "Saved in backend\.env (kept out of git)."
+    $settings = [ordered]@{
+        EMAIL_HOST          = "smtp.gmail.com"
+        EMAIL_PORT          = "587"
+        EMAIL_USE_TLS       = "true"
+        EMAIL_HOST_USER     = $gmail
+        EMAIL_HOST_PASSWORD = $appPassword
+        DEFAULT_FROM_EMAIL  = "NEPSE Notifier <$gmail>"
+    }
+    # Try the login first (environment variables win over backend\.env), and save it only if it works.
+    foreach ($key in $settings.Keys) { Set-Item "env:$key" $settings[$key] }
     Step "Sending a test email to $gmail"
     Push-Location $backend
     try {
         & $python manage.py shell -c "from django.core.mail import send_mail; send_mail('NEPSE Notifier test', 'Email is working. Digests will arrive here.', None, ['$gmail'])"
-        if ($LASTEXITCODE -ne 0) { throw "Could not send through Gmail (the reason is above). Check the address, the app password and the internet connection, then run with -SetupEmail again." }
+        $sent = $LASTEXITCODE -eq 0
     } finally { Pop-Location }
+    if (-not $sent) {
+        foreach ($key in $settings.Keys) { Remove-Item "env:$key" -ErrorAction SilentlyContinue }
+        throw "Could not send through Gmail (the reason is above). Nothing was saved. Check the address, the app password and the internet connection, then run the script again."
+    }
+    $kept = @()
+    if (Test-Path $envFile) { $kept = @(Get-Content $envFile | Where-Object { $_ -notmatch "^\s*(EMAIL_\w+|DEFAULT_FROM_EMAIL)\s*=" }) }
+    $lines = @($kept) + @($settings.Keys | ForEach-Object { "$_=$($settings[$_])" })
+    [System.IO.File]::WriteAllLines($envFile, [string[]]$lines)
+    Write-Host "Saved in backend\.env (kept out of git)."
     Write-Host "Test email sent. Check the inbox of $gmail." -ForegroundColor Green
 }
 $emailOn = (Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "^\s*EMAIL_HOST\s*=\s*\S" -Quiet)
 
+if ($interactive -and -not $Subscribe) {
+    $count = DjangoValue "from modules.notifications.infrastructure.models import Subscriber; print(Subscriber.objects.filter(is_active=True).count())"
+    if ($count -eq "0") { $Subscribe = (Read-Host "`nNo subscribers yet. Email address that should get the digests (leave blank to skip)").Trim() }
+}
 if ($Subscribe) {
     $address = $Subscribe.Trim()
     if ($address -notmatch "^[^@\s'`"]+@[^@\s'`"]+\.[^@\s'`"]+$") { throw "'$address' doesn't look like an email address." }
