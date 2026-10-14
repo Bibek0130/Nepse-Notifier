@@ -17,4 +17,9 @@ def get_latest_analysis(symbol: str) -> dict | None:
     return queries.latest_for_symbol(symbol)
 
 
-__all__ = ["SignalsGenerated", "get_latest_analysis", "get_latest_run_id", "get_run_report"]
+def get_strategy_scorecard(days: int = 180) -> dict:
+    """How each strategy's stored predictions played out: hit rate, average return, targets and stops hit."""
+    return queries.scorecard(days)
+
+
+__all__ = ["SignalsGenerated", "get_latest_analysis", "get_latest_run_id", "get_run_report", "get_strategy_scorecard"]

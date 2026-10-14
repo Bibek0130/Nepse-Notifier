@@ -106,3 +106,62 @@ class BacktestRun(models.Model):
 
     def __str__(self):
         return f"backtest #{self.pk} {self.start_date}..{self.end_date} {self.status}"
+
+
+class StrategySetting(models.Model):
+    """Switch a strategy on or off. Strategies without a row are on."""
+
+    name = models.CharField(max_length=30, unique=True)
+    enabled = models.BooleanField(default=True)
+    description = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        app_label = "analysis"
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({'on' if self.enabled else 'off'})"
+
+
+class Prediction(models.Model):
+    """A signal's claim about where the price goes next, kept so it can be scored later.
+
+    Open until the target or stop is touched or ``horizon`` sessions pass; then the
+    outcome fields are filled in from the actual closing prices.
+    """
+
+    class Outcome(models.TextChoices):
+        TARGET = "target", "Target reached"
+        STOP = "stop", "Stop hit"
+        HORIZON = "horizon", "Settled at horizon"
+
+    run = models.ForeignKey(AnalysisRun, on_delete=models.CASCADE, related_name="predictions")
+    signal = models.OneToOneField(Signal, on_delete=models.SET_NULL, null=True, blank=True, related_name="prediction")
+    symbol = models.CharField(max_length=20)
+    strategy = models.CharField(max_length=30)
+    direction = models.CharField(max_length=10, choices=Signal.Direction.choices)
+    strength = models.PositiveSmallIntegerField()
+    made_on = models.DateField()
+    entry_price = models.DecimalField(max_digits=12, decimal_places=2)
+    target_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    stop_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    horizon = models.PositiveSmallIntegerField(help_text="Sessions to wait before settling on the close")
+    outcome = models.CharField(max_length=10, choices=Outcome.choices, blank=True)
+    exit_date = models.DateField(null=True, blank=True)
+    exit_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    sessions = models.PositiveSmallIntegerField(null=True, blank=True)
+    return_pct = models.FloatField(null=True, blank=True)
+    correct = models.BooleanField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = "analysis"
+        ordering = ["-made_on", "symbol"]
+        constraints = [
+            models.UniqueConstraint(fields=["symbol", "strategy", "direction", "made_on"], name="unique_prediction_per_day"),
+        ]
+        indexes = [models.Index(fields=["outcome", "made_on"]), models.Index(fields=["strategy", "made_on"])]
+
+    def __str__(self):
+        return f"{self.symbol} {self.strategy} {self.direction} {self.made_on}"

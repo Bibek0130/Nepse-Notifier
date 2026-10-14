@@ -42,3 +42,24 @@ def save_analysis(run_id, analysis):
         for s in analysis.signals
     )
     return row
+
+
+@transaction.atomic
+def add_signals(run_id, found):
+    """Attach extra (symbol, Signal) pairs to symbols already analysed in a run."""
+    rows = {a.symbol: a for a in SymbolAnalysis.objects.filter(run_id=run_id, symbol__in={sym for sym, _ in found})}
+    Signal.objects.bulk_create(
+        Signal(
+            run_id=run_id,
+            analysis=rows[symbol],
+            symbol=symbol,
+            trading_date=rows[symbol].trading_date,
+            strategy=s.strategy,
+            direction=s.direction.value,
+            strength=s.strength,
+            message=s.message[:300],
+            values=s.values,
+        )
+        for symbol, s in found
+        if symbol in rows
+    )

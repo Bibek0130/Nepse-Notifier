@@ -72,3 +72,12 @@ class DigestTests(SimpleTestCase):
         content = build_digest(REPORT, Preferences(min_strength=1, watchlist=frozenset({"UPPER"})), quotes=quotes)
         self.assertEqual(content.watchlist[0].signal_count, 1)
         self.assertEqual(build_digest(REPORT, Preferences(min_strength=1), quotes=quotes).watchlist, [])
+
+    def test_track_record_lists_only_settled_strategies(self):
+        card = {"since": "2026-04-15", "strategies": [
+            {"strategy": "pairs", "settled": 4, "hit_rate": 75.0, "avg_return": 2.1},
+            {"strategy": "rsi", "settled": 0, "hit_rate": None, "avg_return": None},
+        ]}
+        content = build_digest(REPORT, Preferences(min_strength=2), scorecard=card)
+        self.assertEqual([r["strategy"] for r in content.track_record], ["pairs"])
+        self.assertEqual(content.track_record_since, "2026-04-15")

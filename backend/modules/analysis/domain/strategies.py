@@ -164,4 +164,40 @@ def trend_projection(ctx):
                  {"projected_close": f.projected_close, "r_squared": f.r_squared})
 
 
-STRATEGIES = [trend, moving_average_cross, rsi_momentum, macd_momentum, ema_ribbon, breakout, volume_spike, trend_projection]
+# Per-symbol strategies by the name their signals carry. Each can be switched off in admin.
+REGISTRY = {
+    "trend": trend,
+    "ma_cross": moving_average_cross,
+    "rsi": rsi_momentum,
+    "macd": macd_momentum,
+    "ema_5_8_13": ema_ribbon,
+    "breakout": breakout,
+    "volume": volume_spike,
+    "forecast": trend_projection,
+}
+STRATEGIES = list(REGISTRY.values())
+
+# Strategies that compare stocks with each other, run once per analysis run over all symbols.
+CROSS_SECTIONAL = {
+    "pairs": "Pairs trading: two related stocks whose price gap is stretched (z-score 2+) and has reliably closed before",
+    "basket_reversion": "Basket mean reversion: a stock stretched away from its sector (or market) basket, expected to revert",
+}
+
+DESCRIPTIONS = {
+    "trend": "Golden or death cross of the 50- and 200-day averages",
+    "ma_cross": "Price crossing its 50-day average",
+    "rsi": "RSI(14) overbought, oversold, or recovering from either",
+    "macd": "MACD crossing its signal line",
+    "ema_5_8_13": "5-8-13 EMA ribbon cross (switchmarkets.com)",
+    "breakout": "Close through support or resistance, with volume confirmation",
+    "volume": "Volume or transactions at least 2x the 20-day average",
+    "forecast": "Steady linear trend projected 5 sessions ahead",
+    **CROSS_SECTIONAL,
+}
+
+
+def selected(enabled_names=None):
+    """Per-symbol strategy functions, limited to ``enabled_names`` when given."""
+    if enabled_names is None:
+        return STRATEGIES
+    return [fn for name, fn in REGISTRY.items() if name in enabled_names]

@@ -24,4 +24,9 @@ def list_symbols() -> list[str]:
     return list(queries.instruments().values_list("symbol", flat=True))
 
 
-__all__ = ["Candle", "CandlesIngested", "Timeframe", "get_candles", "get_latest_quotes", "get_market_summary", "list_symbols"]
+def get_sectors() -> dict[str, str]:
+    """Sector of each active symbol ("" when unknown; sectors are filled in via admin)."""
+    return dict(queries.instruments().values_list("symbol", "sector"))
+
+
+__all__ = ["Candle", "CandlesIngested", "Timeframe", "get_candles", "get_latest_quotes", "get_market_summary", "get_sectors", "list_symbols"]

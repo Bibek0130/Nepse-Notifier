@@ -35,6 +35,23 @@
   {% if digest.bullish %}{% include "notifications/_section.html" with title="Bullish" items=digest.bullish %}{% endif %}
   {% if digest.bearish %}{% include "notifications/_section.html" with title="Bearish" items=digest.bearish %}{% endif %}
   {% if digest.activity %}{% include "notifications/_section.html" with title="Unusual activity" items=digest.activity %}{% endif %}
+  {% if digest.track_record %}
+  <tr><td style="padding:16px 24px 4px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#6b6b66;border-top:1px solid #e3e3de;">Strategy track record</td></tr>
+  <tr><td style="padding:0 24px 4px;font-size:12px;color:#6b6b66;">How past predictions played out since {{ digest.track_record_since }}. Avg return counts a fall as a gain for bearish calls.</td></tr>
+  <tr><td style="padding:0 24px 12px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">
+      <tr style="color:#6b6b66;"><td style="padding:4px 0;">Strategy</td><td style="padding:4px 0;text-align:right;">Settled</td><td style="padding:4px 0;text-align:right;">Right</td><td style="padding:4px 0;text-align:right;">Avg return</td></tr>
+      {% for r in digest.track_record %}
+      <tr>
+        <td style="padding:4px 0;border-top:1px solid #f0f0ec;">{{ r.strategy }}</td>
+        <td style="padding:4px 0;border-top:1px solid #f0f0ec;text-align:right;">{{ r.settled }}</td>
+        <td style="padding:4px 0;border-top:1px solid #f0f0ec;text-align:right;">{{ r.hit_rate }}%</td>
+        <td style="padding:4px 0;border-top:1px solid #f0f0ec;text-align:right;color:{% if r.avg_return > 0 %}#1a7f37{% elif r.avg_return < 0 %}#c62828{% else %}#6b6b66{% endif %};">{% if r.avg_return > 0 %}+{% endif %}{{ r.avg_return }}%</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </td></tr>
+  {% endif %}
   <tr><td style="padding:16px 24px 20px;font-size:12px;color:#6b6b66;border-top:1px solid #e3e3de;">
     These signals and price levels come from standard technical indicators applied automatically. They are not investment advice.<br>
     <a href="{{ preferences_url }}" style="color:#6b6b66;">Change your watchlist or alert settings</a> &middot;

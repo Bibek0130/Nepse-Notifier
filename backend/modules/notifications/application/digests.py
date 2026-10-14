@@ -31,6 +31,8 @@ def prepare_digest(analysis_run_id):
     report = analysis.get_run_report(analysis_run_id)
     market = marketdata.get_market_summary()
     quotes = marketdata.get_latest_quotes()
+    # The strategies' track record goes in the closing email only, not every midday update.
+    scorecard = None if report["provisional"] else analysis.get_strategy_scorecard()
     digest, _ = Digest.objects.get_or_create(
         analysis_run_id=analysis_run_id,
         defaults={"trading_date": report["trading_date"], "provisional": report["provisional"], "signals_count": len(report["signals"])},
@@ -41,7 +43,7 @@ def prepare_digest(analysis_run_id):
         prefs = preferences_for(subscriber)
         if not wants_run(prefs, digest.provisional):
             continue
-        content = build_digest(report, prefs, market, quotes)
+        content = build_digest(report, prefs, market, quotes, scorecard)
         if content.is_empty:
             continue
         text, html = mailer.render(content, subscriber)
