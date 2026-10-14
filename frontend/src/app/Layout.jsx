@@ -1,3 +1,5 @@
+import { useThemePreference } from "../hooks/useColorScheme";
+
 const NAV = [
   ["overview", "Overview", "#/"],
   ["quotes", "Quotes", "#/quotes"],
@@ -6,7 +8,10 @@ const NAV = [
   ["status", "Pipeline", "#/status"],
 ];
 
+const THEME_LABEL = { auto: "Auto", light: "☀ Light", dark: "☾ Dark" };
+
 export default function Layout({ page, children }) {
+  const [theme, cycleTheme] = useThemePreference();
   return (
     <>
       <header className="topbar">
@@ -19,6 +24,9 @@ export default function Layout({ page, children }) {
               </a>
             ))}
           </nav>
+          <button type="button" className="theme-switch" onClick={cycleTheme} title="Switch theme: auto, light, dark">
+            <span className="sr-only">Theme: </span>{THEME_LABEL[theme]}
+          </button>
         </div>
       </header>
       <main>{children}</main>
