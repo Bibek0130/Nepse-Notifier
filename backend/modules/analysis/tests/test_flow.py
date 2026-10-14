@@ -7,7 +7,8 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from modules.analysis import public
-from modules.analysis.infrastructure.models import AnalysisRun, Signal
+from modules.analysis.application import predictions
+from modules.analysis.infrastructure.models import AnalysisRun, Prediction, Signal, StrategySetting
 from modules.analysis.tasks import on_candles_ingested
 from modules.marketdata.domain.entities import Candle, Timeframe
 from modules.marketdata.infrastructure import repositories as market_repo
@@ -81,3 +82,58 @@ class AnalysisFlowTests(TestCase):
         self.assertEqual(client.get("/api/analysis/signals", {"direction": "neutral"}).json()["signals"], [])
         self.assertEqual(client.get("/api/analysis/symbols/spike").json()["symbol"], "SPIKE")
         self.assertEqual(client.get("/api/analysis/symbols/NOPE").status_code, 404)
+
+
+class StrategySelectionAndPredictionTests(TestCase):
+    def setUp(self):
+        market_repo.upsert_candles(daily("SPIKE", [100.0] * 59 + [101.0], [1000] * 59 + [5000]))
+
+    def run_analysis(self, timeframe="1D"):
+        with mock.patch("modules.analysis.application.run.events.publish"):
+            return on_candles_ingested.delay(7, timeframe, TODAY.isoformat(), ["SPIKE"]).get()
+
+    def test_disabled_strategy_does_not_run(self):
+        self.run_analysis()
+        self.assertTrue(StrategySetting.objects.filter(name="pairs", enabled=True).exists())  # rows created on first run
+        StrategySetting.objects.filter(name="volume").update(enabled=False)
+        Signal.objects.all().delete()
+        self.run_analysis()
+        self.assertFalse(Signal.objects.filter(strategy="volume").exists())
+
+    def test_prediction_recorded_then_settled_against_later_prices(self):
+        self.run_analysis()
+        p = Prediction.objects.get(strategy="volume")
+        self.assertEqual((p.symbol, p.direction, p.entry_price, p.made_on, p.outcome), ("SPIKE", "bullish", Decimal("101.00"), TODAY, ""))
+        self.run_analysis()  # re-running the same day does not duplicate it
+        self.assertEqual(Prediction.objects.filter(strategy="volume").count(), 1)
+
+        later = [TODAY + timedelta(days=i) for i in range(1, 11)]
+        market_repo.upsert_candles([
+            Candle("SPIKE", Timeframe.DAILY, datetime.combine(d, time.min, tzinfo=NPT), d, Decimal(p_), Decimal(p_) + 1, Decimal(p_) - 1, Decimal(p_), 1000, None, None, 20)
+            for d, p_ in zip(later, range(102, 112))
+        ])
+        self.assertGreaterEqual(predictions.settle_predictions(), 1)
+        p.refresh_from_db()
+        self.assertEqual((p.outcome, p.exit_price, p.correct, p.sessions), ("horizon", Decimal("111.00"), True, 10))
+
+        card = APIClient().get("/api/analysis/scorecard", {"days": 3650}).json()
+        volume = next(r for r in card["strategies"] if r["strategy"] == "volume")
+        self.assertEqual((volume["settled"], volume["hit_rate"]), (1, 100.0))
+
+    def test_intraday_runs_make_no_predictions(self):
+        self.run_analysis("3H")
+        self.assertFalse(Prediction.objects.exists())
+
+
+class PairsFlowTests(TestCase):
+    def test_pairs_signal_from_full_run(self):
+        from .test_stat_arb import cointegrated_pair
+
+        a, b = cointegrated_pair()
+        market_repo.upsert_candles(daily("PAIRA", a, [1000] * len(a)))
+        market_repo.upsert_candles(daily("PAIRB", b, [1000] * len(b)))
+        with mock.patch("modules.analysis.application.run.events.publish"):
+            on_candles_ingested.delay(8, "1D", TODAY.isoformat(), ["PAIRA", "PAIRB"]).get()
+        pairs = dict(Signal.objects.filter(strategy="pairs").values_list("symbol", "direction"))
+        self.assertEqual(pairs, {"PAIRA": "bearish", "PAIRB": "bullish"})
+        self.assertTrue(Prediction.objects.filter(strategy="pairs", symbol="PAIRB", target_price__isnull=False).exists())

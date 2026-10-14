@@ -48,3 +48,14 @@ class BacktestView(APIView):
         if result is None:
             raise NotFound("No backtest has run yet")
         return Response(result)
+
+
+class ScorecardView(APIView):
+    """Live track record of every strategy's predictions (?days=180)."""
+
+    def get(self, request):
+        try:
+            days = max(1, min(int(request.query_params.get("days", 180)), 3650))
+        except ValueError:
+            days = 180
+        return Response(queries.scorecard(days))

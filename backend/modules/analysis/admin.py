@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .infrastructure.models import AnalysisRun, BacktestRun, Signal, SymbolAnalysis
+from .infrastructure.models import AnalysisRun, BacktestRun, Prediction, Signal, StrategySetting, SymbolAnalysis
 
 
 @admin.register(AnalysisRun)
@@ -29,3 +29,21 @@ class BacktestRunAdmin(admin.ModelAdmin):
     list_display = ["id", "start_date", "end_date", "status", "symbols_tested", "signals_evaluated", "finished_at"]
     list_filter = ["status"]
     readonly_fields = [f.name for f in BacktestRun._meta.fields]
+
+
+@admin.register(StrategySetting)
+class StrategySettingAdmin(admin.ModelAdmin):
+    list_display = ["name", "enabled", "description"]
+    list_editable = ["enabled"]
+    readonly_fields = ["name", "description"]
+
+    def has_add_permission(self, request):
+        return False  # rows are created for every known strategy automatically
+
+
+@admin.register(Prediction)
+class PredictionAdmin(admin.ModelAdmin):
+    list_display = ["symbol", "made_on", "strategy", "direction", "entry_price", "target_price", "stop_price", "outcome", "return_pct", "correct"]
+    list_filter = ["strategy", "direction", "outcome", "correct", "made_on"]
+    search_fields = ["symbol"]
+    readonly_fields = [f.name for f in Prediction._meta.fields]

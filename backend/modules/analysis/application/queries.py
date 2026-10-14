@@ -1,4 +1,9 @@
-from ..infrastructure.models import AnalysisRun, BacktestRun, Signal, SymbolAnalysis
+from datetime import timedelta
+
+from django.utils import timezone
+
+from ..domain.predictions import summarize
+from ..infrastructure.models import AnalysisRun, BacktestRun, Prediction, Signal, SymbolAnalysis
 
 
 def signal_dict(s: Signal):
@@ -70,3 +75,10 @@ def latest_backtest():
         "results": run.results,
         "baseline": run.baseline,
     }
+
+
+def scorecard(days=180):
+    """Live track record per strategy: predictions made in the last ``days`` and how the settled ones did."""
+    since = timezone.localdate() - timedelta(days=days)
+    rows = Prediction.objects.filter(made_on__gte=since).values("strategy", "direction", "outcome", "return_pct", "correct")
+    return {"days": days, "since": since.isoformat(), "strategies": summarize(rows)}

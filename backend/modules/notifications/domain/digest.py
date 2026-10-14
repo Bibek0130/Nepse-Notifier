@@ -48,6 +48,8 @@ class DigestContent:
     activity: list[StockItem] = field(default_factory=list)
     market: dict | None = None
     watchlist: list[WatchItem] = field(default_factory=list)
+    track_record: list[dict] = field(default_factory=list)  # per-strategy hit rate of settled predictions
+    track_record_since: str | None = None
 
     @property
     def stock_count(self):
@@ -94,11 +96,14 @@ def watchlist_items(prefs: Preferences, quotes: list[dict] | None, by_symbol: di
     return items
 
 
-def build_digest(report: dict, prefs: Preferences, market: dict | None = None, quotes: list[dict] | None = None) -> DigestContent:
+def build_digest(
+    report: dict, prefs: Preferences, market: dict | None = None, quotes: list[dict] | None = None, scorecard: dict | None = None,
+) -> DigestContent:
     """Group the report's signals by symbol and sort them into digest sections.
 
     Symbols with any strength-3 signal go under "strong"; the rest by net direction.
     With a watchlist and ``quotes``, every watched stock's latest price is listed too.
+    With a ``scorecard``, strategies with settled predictions get a track-record table.
     """
     content = DigestContent(trading_date=report["trading_date"], provisional=report["provisional"], market=market)
     by_symbol = {}
@@ -133,6 +138,9 @@ def build_digest(report: dict, prefs: Preferences, market: dict | None = None, q
     for section in (content.strong, content.bullish, content.bearish, content.activity):
         section.sort(key=lambda i: (-i.max_strength, DIRECTION_ORDER[i.direction], i.symbol))
     content.watchlist = watchlist_items(prefs, quotes, by_symbol, report.get("trade_plans", {}))
+    if scorecard:
+        content.track_record = [r for r in scorecard["strategies"] if r["settled"]]
+        content.track_record_since = scorecard["since"]
     return content
 
 

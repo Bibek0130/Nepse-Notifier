@@ -69,7 +69,28 @@ Intraday runs append the latest snapshot as a provisional bar for today.
 | `ema_5_8_13` | 5-8-13 EMA strategy from [switchmarkets.com](https://www.switchmarkets.com/learn/technical-analysis-strategies): the 5-day EMA crosses above the 8 and 13 with price above all three is a buy, with a stop under the 5-day low and a 1:1 target; the mirror is an exit (2) |
 | `breakout` | Close goes through yesterday's resistance or support: 3 with at least 1.5x average volume, 1 without |
 | `volume` / `transactions` | Today's volume or number of trades is at least 2x the 20-day average |
+| `pairs` | Pairs trading (statistical arbitrage): two stocks in the same sector (or, without sectors, among the 60 most traded) whose log-price spread is cointegrated over 120 sessions (Engle-Granger ADF t below -3.34, half-life up to 30 sessions, return correlation at least 0.5) and is now stretched 2 to 3.5 standard deviations. The stock that ran ahead is bearish, the one left behind bullish; target is the price where the spread is back at its mean, stop where it reaches 3.5 sd (2, or 3 at 3+ sd) |
+| `basket_reversion` | Basket mean reversion: the same test of a stock against the equal-weighted basket of its sector peers (2, or 3 at 3+ sd) |
 | `forecast` | A linear trend over 20 sessions with a good fit (R² ≥ 0.6) is projected 5 sessions ahead. It describes the trend and is not a prediction |
+
+`pairs` and `basket_reversion` compare stocks with each other, so they run once over the
+whole run in `finish_run` rather than per symbol (`modules/analysis/domain/stat_arb.py`).
+Sectors come from `Instrument.sector`, which is filled in through Django admin.
+
+Every strategy can be switched on or off in Django admin under **Analysis > Strategy
+settings** (a row per strategy is created on the next run; new strategies start on).
+
+### Predictions and the live track record
+
+Each directional signal from a market-close run is stored as a `Prediction`: entry at the
+close, the strategy's target and stop when it names them, and a horizon of 10 sessions
+(5 for `forecast`). After every market-close run, open predictions are settled from the
+actual daily prices: the first of target or stop touched decides it (stop if a bar touches
+both), otherwise the close at the horizon. Each one records its exit, return and whether the
+price moved the predicted way. The per-strategy track record (hit rate, average return in the
+predicted direction, targets and stops hit) is at `GET /api/analysis/scorecard?days=180`,
+in the closing email, and from `python manage.py score_predictions`. Predictions can be
+browsed in admin. Unlike the weekly backtest, this measures what the system actually sent.
 
 Support and resistance are clustered swing highs and lows (within 1.5%) from the
 last 120 sessions. Thresholds live in `StrategyConfig`

@@ -13,7 +13,10 @@ BULLISH
 BEARISH
 {% for item in digest.bearish %}{% include "notifications/_item.txt" %}{% endfor %}{% endif %}{% if digest.activity %}
 UNUSUAL ACTIVITY
-{% for item in digest.activity %}{% include "notifications/_item.txt" %}{% endfor %}{% endif %}
+{% for item in digest.activity %}{% include "notifications/_item.txt" %}{% endfor %}{% endif %}{% if digest.track_record %}
+STRATEGY TRACK RECORD (since {{ digest.track_record_since }}; a fall counts as a gain for bearish calls)
+{% for r in digest.track_record %}{{ r.strategy }}: right {{ r.hit_rate }}% of {{ r.settled }}, average return {% if r.avg_return > 0 %}+{% endif %}{{ r.avg_return }}%
+{% endfor %}{% endif %}
 --
 These signals and price levels come from standard technical indicators applied automatically. They are not investment advice.
 Change your watchlist or alert settings: {{ preferences_url }}
