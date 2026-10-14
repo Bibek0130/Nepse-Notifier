@@ -144,6 +144,16 @@ Then open the dashboard at http://localhost:5173, admin at http://localhost:8000
 
 `config.settings.local` needs only Python: data goes in `backend/local.sqlite3`, the cache in `backend/.cache/`, and each pipeline step (fetch, analyse, email) runs in the same process instead of on a Celery worker. Emails print to the terminal unless `EMAIL_HOST` is set. Works on Windows, macOS and Linux.
 
+**On Windows, one command does all of it.** From the project folder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run-local.ps1
+```
+
+It creates the venv, installs packages, sets up the database, asks for an admin login the first time, fetches prices (and a year of history on the first run), then opens the server and the dashboard in their own windows. Run it again to fetch the latest prices. `-SkipFetch` starts the servers without fetching; `-NoServers` fetches without starting them.
+
+The same steps by hand:
+
 ```powershell
 cd backend
 python -m venv venv; .\venv\Scripts\activate      # macOS/Linux: source venv/bin/activate
