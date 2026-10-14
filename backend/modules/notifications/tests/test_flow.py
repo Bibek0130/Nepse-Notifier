@@ -63,13 +63,18 @@ class DigestFlowTests(TestCase):
         watch_only = next(m for m in mail.outbox if m.to == ["flat@example.com"])
         self.assertIn("YOUR WATCHLIST\nFLAT: 100", watch_only.body)
         self.assertNotIn("SPIKE", watch_only.body)
+        self.assertIn("Buy zone", watch_only.body)  # watched stocks get trade levels even without signals
         message = next(m for m in mail.outbox if m.to == ["all@example.com"])
         self.assertTrue(message.subject.startswith("NEPSE Market close 2026-10-12"))
         self.assertIn("SPIKE", message.body)
         self.assertIn("Volume 5.0x the 20-day average", message.body)
+        self.assertIn("LTP 101", message.body)
+        self.assertIn("Stop loss", message.body)
         self.assertIn("https://nepse.example.com/notifications/unsubscribe/", message.body)
         html = message.alternatives[0].content
         self.assertIn("<strong>SPIKE</strong>", html)
+        self.assertIn("Correction zone", html)
+        self.assertIn("Risk : reward", html)
         self.assertEqual(message.extra_headers["List-Unsubscribe"], f"<https://nepse.example.com/notifications/unsubscribe/{self.everyone.unsubscribe_token}>")
         self.assertEqual(Delivery.objects.get(subscriber=self.everyone).status, "sent")
 

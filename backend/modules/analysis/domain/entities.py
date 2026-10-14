@@ -5,6 +5,7 @@ from enum import StrEnum
 
 from .forecast import Forecast
 from .levels import Level
+from .trade_plan import TradePlan
 
 
 class Direction(StrEnum):
@@ -51,3 +52,4 @@ class Analysis:
     resistance: Level | None
     forecast: Forecast | None
     signals: list[Signal]
+    trade_plan: TradePlan | None = None

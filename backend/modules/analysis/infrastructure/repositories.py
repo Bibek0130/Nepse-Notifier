@@ -25,6 +25,7 @@ def save_analysis(run_id, analysis):
         resistance=_dec(analysis.resistance),
         resistance_touches=analysis.resistance.touches if analysis.resistance else None,
         forecast=asdict(analysis.forecast) if analysis.forecast else None,
+        trade_plan=asdict(analysis.trade_plan) if analysis.trade_plan else None,
     )
     Signal.objects.bulk_create(
         Signal(

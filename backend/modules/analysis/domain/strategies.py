@@ -31,6 +31,9 @@ class Context:
     rsi14: list
     macd: list
     macd_signal: list
+    ema5: list
+    ema8: list
+    ema13: list
     avg_volume20: float | None
     avg_trades20: float | None
     support: object  # Level | None
@@ -116,6 +119,40 @@ def volume_spike(ctx):
                      {"trades": s.trades[-1], "avg_trades20": round(ctx.avg_trades20), "ratio": round(ratio, 2)})
 
 
+def _ribbon(close, a, b, c, above):
+    if None in (a, b, c):
+        return False
+    if above:
+        return a > max(b, c) and close > max(a, b, c)
+    return a < min(b, c) and close < min(a, b, c)
+
+
+def ema_ribbon(ctx):
+    """5-8-13 EMA strategy (switchmarkets.com): the 5 crosses above the 8 and 13 with price above all three.
+
+    Stop goes under the recent swing low, target at 1:1 risk-reward. The bearish mirror
+    (price and the 5 drop below the 8 and 13) is an exit signal, since NEPSE has no short selling.
+    """
+    s = ctx.series
+    if len(s.closes) < 6:
+        return
+    now = [s.closes[-1], ctx.ema5[-1], ctx.ema8[-1], ctx.ema13[-1]]
+    before = [s.closes[-2], ctx.ema5[-2], ctx.ema8[-2], ctx.ema13[-2]]
+    close = s.closes[-1]
+    values = {"ema5": now[1], "ema8": now[2], "ema13": now[3]}
+    if _ribbon(*now, above=True) and not _ribbon(*before, above=True):
+        stop = min(s.lows[-5:])
+        target = close + (close - stop)
+        yield Signal("ema_5_8_13", Direction.BULLISH, 2,
+                     f"5-8-13 EMA buy: 5-day EMA crossed above the 8 and 13; stop {stop:g}, 1:1 target {target:.1f}",
+                     {**values, "stop": stop, "target": round(target, 1)})
+    elif _ribbon(*now, above=False) and not _ribbon(*before, above=False):
+        stop = max(s.highs[-5:])
+        yield Signal("ema_5_8_13", Direction.BEARISH, 2,
+                     f"5-8-13 EMA exit: price and the 5-day EMA fell below the 8 and 13 (recent high {stop:g})",
+                     {**values, "recent_high": stop})
+
+
 def trend_projection(ctx):
     f, cfg = ctx.forecast, ctx.config
     if not f or f.r_squared < cfg.min_forecast_r2 or abs(f.slope_pct_per_day) < cfg.min_forecast_slope_pct:
@@ -127,4 +164,4 @@ def trend_projection(ctx):
                  {"projected_close": f.projected_close, "r_squared": f.r_squared})
 
 
-STRATEGIES = [trend, moving_average_cross, rsi_momentum, macd_momentum, breakout, volume_spike, trend_projection]
+STRATEGIES = [trend, moving_average_cross, rsi_momentum, macd_momentum, ema_ribbon, breakout, volume_spike, trend_projection]

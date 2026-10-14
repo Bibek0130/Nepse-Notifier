@@ -5,7 +5,7 @@ Market: {{ digest.market.advancers }} up, {{ digest.market.decliners }} down, {{
 {% endif %}{% if digest.watchlist %}
 YOUR WATCHLIST
 {% for w in digest.watchlist %}{{ w.symbol }}: {% if w.close is not None %}{{ w.close }}{% else %}no price{% endif %}{% if w.change_percent is not None %} ({% if w.change_percent > 0 %}+{% endif %}{{ w.change_percent }}%){% endif %}{% if w.signal_count %}, {{ w.signal_count }} signal{{ w.signal_count|pluralize }} below{% endif %}
-{% endfor %}{% endif %}{% if digest.strong %}
+{% include "notifications/_plan.txt" with plan=w.plan %}{% endfor %}{% endif %}{% if digest.strong %}
 STRONG SIGNALS
 {% for item in digest.strong %}{% include "notifications/_item.txt" %}{% endfor %}{% endif %}{% if digest.bullish %}
 BULLISH
@@ -15,7 +15,7 @@ BEARISH
 UNUSUAL ACTIVITY
 {% for item in digest.activity %}{% include "notifications/_item.txt" %}{% endfor %}{% endif %}
 --
-These signals come from standard technical indicators applied automatically. They are not investment advice.
+These signals and price levels come from standard technical indicators applied automatically. They are not investment advice.
 Change your watchlist or alert settings: {{ preferences_url }}
 Unsubscribe: {{ unsubscribe_url }}
 {% endautoescape %}

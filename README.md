@@ -66,6 +66,7 @@ Intraday runs append the latest snapshot as a provisional bar for today.
 | `ma_cross` | Close crosses the 50-day SMA (2) |
 | `rsi` | RSI(14) at or above 70 is overbought, at or below 30 is oversold (1), and recovering out of either zone is stronger (2) |
 | `macd` | MACD(12,26,9) crosses its signal line (2) |
+| `ema_5_8_13` | 5-8-13 EMA strategy from [switchmarkets.com](https://www.switchmarkets.com/learn/technical-analysis-strategies): the 5-day EMA crosses above the 8 and 13 with price above all three is a buy, with a stop under the 5-day low and a 1:1 target; the mirror is an exit (2) |
 | `breakout` | Close goes through yesterday's resistance or support: 3 with at least 1.5x average volume, 1 without |
 | `volume` / `transactions` | Today's volume or number of trades is at least 2x the 20-day average |
 | `forecast` | A linear trend over 20 sessions with a good fit (R² ≥ 0.6) is projected 5 sessions ahead. It describes the trend and is not a prediction |
@@ -73,6 +74,18 @@ Intraday runs append the latest snapshot as a provisional bar for today.
 Support and resistance are clustered swing highs and lows (within 1.5%) from the
 last 120 sessions. Thresholds live in `StrategyConfig`
 (`modules/analysis/domain/strategies.py`).
+
+Every analysed stock also gets trade levels (`modules/analysis/domain/trade_plan.py`),
+stored in `SymbolAnalysis.trade_plan` and shown in the email digest:
+
+| Level | How it is worked out |
+|---|---|
+| LTP, movement | Last price, change on the day and over 5 sessions; uptrend, downtrend or sideways from the 5-8-13 EMA ribbon |
+| Buy zone | Nearest support up to half an ATR(14) above it (the 60-day swing low when there is no support) |
+| Sell zone | Nearest resistance and half an ATR below it (the swing high, or 3 ATRs up at new highs, when there is none) |
+| Correction zone | 38.2%-61.8% Fibonacci retracement of the 60-day swing |
+| Stop loss / target | One ATR under the buy zone / the top of the sell zone |
+| Risk : reward | (target - LTP) / (LTP - stop), for a buy at today's price |
 
 ## Email digests
 

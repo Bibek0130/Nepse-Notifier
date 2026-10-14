@@ -24,6 +24,7 @@ class StockItem:
     support: float | None = None
     resistance: float | None = None
     projected_close: float | None = None
+    plan: dict | None = None  # trade levels: zones, stop, target, risk-to-reward
 
 
 @dataclass
@@ -34,6 +35,7 @@ class WatchItem:
     close: float | None = None
     change_percent: float | None = None
     signal_count: int = 0
+    plan: dict | None = None
 
 
 @dataclass
@@ -73,7 +75,7 @@ def _net_direction(signals):
     return "bullish" if score > 0 else "bearish" if score < 0 else "neutral"
 
 
-def watchlist_items(prefs: Preferences, quotes: list[dict] | None, by_symbol: dict) -> list[WatchItem]:
+def watchlist_items(prefs: Preferences, quotes: list[dict] | None, by_symbol: dict, plans: dict) -> list[WatchItem]:
     if not prefs.watchlist or quotes is None:
         return []
     latest = {q["symbol"]: q for q in quotes}
@@ -86,6 +88,8 @@ def watchlist_items(prefs: Preferences, quotes: list[dict] | None, by_symbol: di
             close=float(close) if close is not None else None,
             change_percent=q.get("change_percent"),
             signal_count=len(by_symbol.get(symbol, [])),
+            # Stocks with signals show their levels in their own section below.
+            plan=None if symbol in by_symbol else plans.get(symbol),
         ))
     return items
 
@@ -115,6 +119,7 @@ def build_digest(report: dict, prefs: Preferences, market: dict | None = None, q
             support=analysis.get("support"),
             resistance=analysis.get("resistance"),
             projected_close=(analysis.get("forecast") or {}).get("projected_close"),
+            plan=analysis.get("trade_plan"),
         )
         if item.max_strength >= 3:
             content.strong.append(item)
@@ -127,7 +132,7 @@ def build_digest(report: dict, prefs: Preferences, market: dict | None = None, q
 
     for section in (content.strong, content.bullish, content.bearish, content.activity):
         section.sort(key=lambda i: (-i.max_strength, DIRECTION_ORDER[i.direction], i.symbol))
-    content.watchlist = watchlist_items(prefs, quotes, by_symbol)
+    content.watchlist = watchlist_items(prefs, quotes, by_symbol, report.get("trade_plans", {}))
     return content
 
 

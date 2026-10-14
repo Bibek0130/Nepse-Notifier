@@ -83,3 +83,17 @@ def crossed_above(a, b):
 
 def crossed_below(a, b):
     return crossed_above(b, a)
+
+
+def atr(highs, lows, closes, period=14):
+    """Wilder's Average True Range: the typical daily price swing, in rupees."""
+    out = [None] * len(closes)
+    if len(closes) <= period:
+        return out
+    true_ranges = [highs[0] - lows[0]] + [
+        max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1])) for i in range(1, len(closes))
+    ]
+    out[period] = sum(true_ranges[1 : period + 1]) / period
+    for i in range(period + 1, len(closes)):
+        out[i] = (out[i - 1] * (period - 1) + true_ranges[i]) / period
+    return out

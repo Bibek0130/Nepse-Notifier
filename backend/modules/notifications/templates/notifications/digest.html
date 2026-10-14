@@ -26,6 +26,7 @@
         <td style="padding:6px 0 6px 12px;border-top:1px solid #f0f0ec;text-align:right;color:{% if w.change_percent > 0 %}#1a7f37{% elif w.change_percent < 0 %}#c62828{% else %}#6b6b66{% endif %};">{% if w.change_percent is not None %}{% if w.change_percent > 0 %}+{% endif %}{{ w.change_percent }}%{% endif %}</td>
         <td style="padding:6px 0 6px 12px;border-top:1px solid #f0f0ec;text-align:right;color:#6b6b66;font-size:12px;">{% if w.signal_count %}{{ w.signal_count }} signal{{ w.signal_count|pluralize }} below{% else %}no signals{% endif %}</td>
       </tr>
+      {% if w.plan %}<tr><td colspan="4" style="padding:0 0 8px;">{% include "notifications/_plan.html" with plan=w.plan %}</td></tr>{% endif %}
       {% endfor %}
     </table>
   </td></tr>
@@ -35,7 +36,7 @@
   {% if digest.bearish %}{% include "notifications/_section.html" with title="Bearish" items=digest.bearish %}{% endif %}
   {% if digest.activity %}{% include "notifications/_section.html" with title="Unusual activity" items=digest.activity %}{% endif %}
   <tr><td style="padding:16px 24px 20px;font-size:12px;color:#6b6b66;border-top:1px solid #e3e3de;">
-    These signals come from standard technical indicators applied automatically. They are not investment advice.<br>
+    These signals and price levels come from standard technical indicators applied automatically. They are not investment advice.<br>
     <a href="{{ preferences_url }}" style="color:#6b6b66;">Change your watchlist or alert settings</a> &middot;
     <a href="{{ unsubscribe_url }}" style="color:#6b6b66;">Unsubscribe</a>
   </td></tr>
