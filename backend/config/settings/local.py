@@ -4,11 +4,28 @@
 
 Data goes in local.sqlite3, the cache in .cache/, and each step of the pipeline
 (fetch, analyse, email) runs inline in the same process. Emails print to the
-terminal unless EMAIL_HOST is set. Good for trying the project on a laptop; use
+terminal unless EMAIL_HOST is set, here or in backend/.env (run-local.ps1
+-SetupEmail writes it for Gmail). Good for trying the project on a laptop; use
 the dev or prod settings with Postgres and Redis for anything long-running.
 """
-from .base import *  # noqa: F401,F403
-from .base import BASE_DIR, env_bool
+import os
+from pathlib import Path
+
+
+def _load_env_file(path):
+    """Read KEY=VALUE lines into the environment; real environment variables win."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() and not key.strip().startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_env_file(Path(__file__).resolve().parents[2] / ".env")
+
+from .base import *  # noqa: E402,F401,F403
+from .base import BASE_DIR, env_bool  # noqa: E402
 
 DEBUG = env_bool("DJANGO_DEBUG", True)
 

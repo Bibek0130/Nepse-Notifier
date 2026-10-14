@@ -18,11 +18,21 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\run-local.ps1 -SkipFetch
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\run-local.ps1 -SetupEmail
+    Asks for a Gmail address and app password, saves them in backend\.env and
+    sends a test email. After that, digests are emailed instead of printed.
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\run-local.ps1 -Subscribe you@gmail.com
 #>
 param(
     [int]$HistoryDays = 365,  # how much history to download on the first run
     [switch]$SkipFetch,       # start the servers without fetching new prices
-    [switch]$NoServers        # set up and fetch only; don't start the servers
+    [switch]$NoServers,       # set up and fetch only; don't start the servers
+    [switch]$SetupEmail,      # save Gmail login so digests are emailed, not printed
+    [string]$Subscribe        # add this email address as a digest subscriber
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,6 +84,45 @@ Run $python -m pip install --quiet --disable-pip-version-check -r (Join-Path $ba
 Step "Preparing the database (backend\local.sqlite3)"
 Django migrate --verbosity 0
 
+# --- Email ------------------------------------------------------------------
+$envFile = Join-Path $backend ".env"
+if ($SetupEmail) {
+    Step "Setting up Gmail for sending digests"
+    Write-Host "Gmail needs an app password, not your normal password. Turn on 2-Step Verification,"
+    Write-Host "then create one at https://myaccount.google.com/apppasswords and paste it below."
+    $gmail = (Read-Host "Gmail address to send from").Trim()
+    $secure = Read-Host "App password (16 letters)" -AsSecureString
+    $appPassword = [System.Net.NetworkCredential]::new("", $secure).Password -replace "\s", ""
+    if (-not $gmail -or -not $appPassword) { throw "Both the Gmail address and the app password are needed." }
+    $kept = @()
+    if (Test-Path $envFile) { $kept = @(Get-Content $envFile | Where-Object { $_ -notmatch "^\s*(EMAIL_\w+|DEFAULT_FROM_EMAIL)\s*=" }) }
+    $lines = @($kept) + @(
+        "EMAIL_HOST=smtp.gmail.com",
+        "EMAIL_PORT=587",
+        "EMAIL_USE_TLS=true",
+        "EMAIL_HOST_USER=$gmail",
+        "EMAIL_HOST_PASSWORD=$appPassword",
+        "DEFAULT_FROM_EMAIL=NEPSE Notifier <$gmail>"
+    )
+    [System.IO.File]::WriteAllLines($envFile, [string[]]$lines)
+    Write-Host "Saved in backend\.env (kept out of git)."
+    Step "Sending a test email to $gmail"
+    Push-Location $backend
+    try {
+        & $python manage.py shell -c "from django.core.mail import send_mail; send_mail('NEPSE Notifier test', 'Email is working. Digests will arrive here.', None, ['$gmail'])"
+        if ($LASTEXITCODE -ne 0) { throw "Could not send through Gmail (the reason is above). Check the address, the app password and the internet connection, then run with -SetupEmail again." }
+    } finally { Pop-Location }
+    Write-Host "Test email sent. Check the inbox of $gmail." -ForegroundColor Green
+}
+$emailOn = (Test-Path $envFile) -and (Select-String -Path $envFile -Pattern "^\s*EMAIL_HOST\s*=\s*\S" -Quiet)
+
+if ($Subscribe) {
+    $address = $Subscribe.Trim()
+    if ($address -notmatch "^[^@\s'`"]+@[^@\s'`"]+\.[^@\s'`"]+$") { throw "'$address' doesn't look like an email address." }
+    $result = DjangoValue "from modules.notifications.infrastructure.models import Subscriber; s, new = Subscriber.objects.get_or_create(email='$address'); print('added' if new else 'already subscribed')"
+    Write-Host "$address`: $result" -ForegroundColor Green
+}
+
 $admins = DjangoValue "from django.contrib.auth.models import User; print(User.objects.filter(is_superuser=True).count())"
 if ($admins -eq "0") {
     Step "Create an admin login. You'll use it at http://localhost:8000/admin to add email subscribers."
@@ -97,7 +146,9 @@ if (-not $SkipFetch) {
 
 $subscribers = DjangoValue "from modules.notifications.infrastructure.models import Subscriber; print(Subscriber.objects.filter(is_active=True).count())"
 if ($subscribers -eq "0") {
-    Write-Host "`nNo email subscribers yet, so no digest was sent. Add yourself at http://localhost:8000/admin (Subscribers), then run this script again." -ForegroundColor Yellow
+    Write-Host "`nNo email subscribers yet, so no digest was sent. Add yourself with -Subscribe you@example.com, then run this script again." -ForegroundColor Yellow
+} elseif (-not $emailOn) {
+    Write-Host "`nDigests print in this window instead of being emailed. Run with -SetupEmail once to send them through Gmail." -ForegroundColor Yellow
 }
 
 if ($NoServers) { return }
