@@ -6,9 +6,11 @@ Subscribers are referenced by task *name*, so the publisher never imports the
 subscriber: the dependency points only one way.
 """
 import dataclasses
+import importlib
 import logging
 from collections import defaultdict
 
+from django.conf import settings
 from django.db import transaction
 
 logger = logging.getLogger(__name__)
@@ -38,13 +40,21 @@ def subscribers(event_cls):
 
 
 def publish(event):
-    """Queue every subscriber task once the surrounding transaction commits."""
+    """Queue every subscriber task once the surrounding transaction commits.
+
+    With ``EVENTS_RUN_INLINE`` (the local settings) subscribers run right here instead,
+    so the whole pipeline works without a broker or worker.
+    """
 
     def dispatch():
         from celery import current_app
 
         for task_name in _subscribers[event.event_name()]:
             logger.info("Dispatching %s to %s", event.event_name(), task_name)
-            current_app.send_task(task_name, kwargs=event.payload())
+            if getattr(settings, "EVENTS_RUN_INLINE", False):
+                importlib.import_module(task_name.rsplit(".", 1)[0])  # registers the task, as a worker would
+                current_app.tasks[task_name].apply(kwargs=event.payload(), throw=True)
+            else:
+                current_app.send_task(task_name, kwargs=event.payload())
 
     transaction.on_commit(dispatch)

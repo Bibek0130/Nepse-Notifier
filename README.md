@@ -140,6 +140,24 @@ docker compose exec api python manage.py backfill_history --days 365 # a year of
 
 Then open the dashboard at http://localhost:5173, admin at http://localhost:8000/admin/, and the API at http://localhost:8000/api/market/summary.
 
+## Run on a laptop with nothing else installed
+
+`config.settings.local` needs only Python: data goes in `backend/local.sqlite3`, the cache in `backend/.cache/`, and each pipeline step (fetch, analyse, email) runs in the same process instead of on a Celery worker. Emails print to the terminal unless `EMAIL_HOST` is set. Works on Windows, macOS and Linux.
+
+```powershell
+cd backend
+python -m venv venv; .\venv\Scripts\activate      # macOS/Linux: source venv/bin/activate
+pip install -r requirements.txt
+$env:DJANGO_SETTINGS_MODULE = "config.settings.local"   # macOS/Linux: export DJANGO_SETTINGS_MODULE=config.settings.local
+python manage.py migrate
+python manage.py createsuperuser                     # to add subscribers in /admin
+python manage.py backfill_history --days 365         # a year of prices, so the indicators have history
+python manage.py ingest_market --kind eod --force    # today's prices, then analysis and the digest
+python manage.py runserver                           # admin and API at http://localhost:8000
+```
+
+Without Beat there is no schedule: run `ingest_market` yourself, or from Windows Task Scheduler / cron at 11:15, 14:15 (`--kind intraday`) and 15:15 (`--kind eod`) Nepal time, Sunday to Thursday. For a server that runs on its own, use Docker or the setup below.
+
 ## Run without Docker
 
 You need Postgres and Redis running locally (see `.env.example`).
