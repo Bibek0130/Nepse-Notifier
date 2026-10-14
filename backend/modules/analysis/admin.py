@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from .application.strategies import sync_settings
 from .infrastructure.models import AnalysisRun, BacktestRun, Prediction, Signal, StrategySetting, SymbolAnalysis
 
 
@@ -36,6 +37,10 @@ class StrategySettingAdmin(admin.ModelAdmin):
     list_display = ["name", "enabled", "description"]
     list_editable = ["enabled"]
     readonly_fields = ["name", "description"]
+
+    def get_queryset(self, request):
+        sync_settings()  # list every strategy even before the first analysis run
+        return super().get_queryset(request)
 
     def has_add_permission(self, request):
         return False  # rows are created for every known strategy automatically
