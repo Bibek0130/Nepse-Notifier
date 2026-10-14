@@ -43,6 +43,7 @@ class SymbolAnalysis(models.Model):
     resistance = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     resistance_touches = models.IntegerField(null=True, blank=True)
     forecast = models.JSONField(null=True, blank=True)
+    trade_plan = models.JSONField(null=True, blank=True, help_text="Buy/sell/correction zones, stop, target and risk-to-reward")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

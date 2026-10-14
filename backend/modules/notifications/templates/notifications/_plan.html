@@ -1,0 +1,10 @@
+{% if plan %}<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:6px;font-size:13px;line-height:1.5;width:100%;background:#fafaf7;border:1px solid #efefea;border-radius:6px;">
+  <tr><td style="padding:6px 10px 2px;color:#6b6b66;">LTP</td><td style="padding:6px 10px 2px;text-align:right;"><strong>{{ plan.ltp }}</strong>{% if plan.change_pct is not None %} <span style="color:{% if plan.change_pct > 0 %}#1a7f37{% elif plan.change_pct < 0 %}#c62828{% else %}#6b6b66{% endif %};">{% if plan.change_pct > 0 %}+{% endif %}{{ plan.change }} ({% if plan.change_pct > 0 %}+{% endif %}{{ plan.change_pct }}%)</span>{% endif %}</td></tr>
+  <tr><td style="padding:2px 10px;color:#6b6b66;">Movement</td><td style="padding:2px 10px;text-align:right;">{{ plan.movement|capfirst }}{% if plan.change_5d_pct is not None %}, {% if plan.change_5d_pct > 0 %}+{% endif %}{{ plan.change_5d_pct }}% in 5 days{% endif %}</td></tr>
+  <tr><td style="padding:2px 10px;color:#1a7f37;">Buy zone</td><td style="padding:2px 10px;text-align:right;">{{ plan.buy_zone.low }} &ndash; {{ plan.buy_zone.high }}</td></tr>
+  <tr><td style="padding:2px 10px;color:#c62828;">Sell zone</td><td style="padding:2px 10px;text-align:right;">{{ plan.sell_zone.low }} &ndash; {{ plan.sell_zone.high }}</td></tr>
+  <tr><td style="padding:2px 10px;color:#6b6b66;">Correction zone</td><td style="padding:2px 10px;text-align:right;">{{ plan.correction_zone.low }} &ndash; {{ plan.correction_zone.high }}</td></tr>
+  <tr><td style="padding:2px 10px;color:#6b6b66;">Stop loss / target</td><td style="padding:2px 10px;text-align:right;">{{ plan.stop_loss }} / {{ plan.target }}</td></tr>
+  <tr><td style="padding:2px 10px;color:#6b6b66;">Risk : reward</td><td style="padding:2px 10px;text-align:right;">{% if plan.risk_reward is not None %}1 : {{ plan.risk_reward }}{% else %}no upside to target{% endif %}</td></tr>
+  <tr><td style="padding:2px 10px 6px;color:#6b6b66;">Daily range (ATR)</td><td style="padding:2px 10px 6px;text-align:right;">{{ plan.atr }} ({{ plan.atr_pct }}%) &middot; now {{ plan.position }}</td></tr>
+</table>{% endif %}

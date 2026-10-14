@@ -1,0 +1,4 @@
+{% autoescape off %}{% if plan %}  LTP {{ plan.ltp }}{% if plan.change_pct is not None %} ({% if plan.change_pct > 0 %}+{% endif %}{{ plan.change_pct }}%){% endif %}, {{ plan.movement }}{% if plan.change_5d_pct is not None %} ({% if plan.change_5d_pct > 0 %}+{% endif %}{{ plan.change_5d_pct }}% in 5 days){% endif %}, now {{ plan.position }}
+  Buy zone {{ plan.buy_zone.low }}-{{ plan.buy_zone.high }} | Sell zone {{ plan.sell_zone.low }}-{{ plan.sell_zone.high }} | Correction zone {{ plan.correction_zone.low }}-{{ plan.correction_zone.high }}
+  Stop loss {{ plan.stop_loss }}, target {{ plan.target }}, risk:reward {% if plan.risk_reward is not None %}1:{{ plan.risk_reward }}{% else %}n/a{% endif %}, ATR {{ plan.atr }} ({{ plan.atr_pct }}%)
+{% endif %}{% endautoescape %}

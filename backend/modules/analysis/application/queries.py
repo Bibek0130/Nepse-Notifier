@@ -24,6 +24,7 @@ def analysis_dict(a: SymbolAnalysis):
         "resistance": float(a.resistance) if a.resistance is not None else None,
         "resistance_touches": a.resistance_touches,
         "forecast": a.forecast,
+        "trade_plan": a.trade_plan,
         "signals": [signal_dict(s) for s in a.signals.all()],
     }
 
@@ -40,6 +41,8 @@ def run_report(run_id):
         "symbols_analyzed": run.symbols_analyzed,
         "signals": [signal_dict(s) for s in signals],
         "analyses": {a.symbol: analysis_dict(a) for a in analyses},
+        # Every analysed symbol's levels, so watchlist stocks without signals get them too.
+        "trade_plans": dict(SymbolAnalysis.objects.filter(run=run, trade_plan__isnull=False).values_list("symbol", "trade_plan")),
     }
 
 
