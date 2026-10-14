@@ -72,3 +72,36 @@ class Signal(models.Model):
         app_label = "analysis"
         ordering = ["-strength", "symbol"]
         indexes = [models.Index(fields=["trading_date", "direction"]), models.Index(fields=["symbol", "-trading_date"])]
+
+
+class BacktestRun(models.Model):
+    """One replay of every strategy over past prices, with per-strategy results.
+
+    ``results`` maps a minimum strength ("1", "2", "3") to a list of
+    {strategy, direction, signals, horizons: [{horizon, samples, avg_return, hit_rate}]}.
+    ``baseline`` is the same horizon list over every day evaluated, signal or not.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running"
+        OK = "ok"
+        FAILED = "failed"
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RUNNING)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    horizons = models.JSONField(default=list)
+    symbols_tested = models.IntegerField(default=0)
+    signals_evaluated = models.IntegerField(default=0)
+    results = models.JSONField(default=dict)
+    baseline = models.JSONField(default=list)
+    error = models.TextField(blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = "analysis"
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"backtest #{self.pk} {self.start_date}..{self.end_date} {self.status}"

@@ -2,6 +2,7 @@ const NAV = [
   ["overview", "Overview", "#/"],
   ["quotes", "Quotes", "#/quotes"],
   ["stock", "Stock", "#/stock"],
+  ["backtest", "Backtest", "#/backtest"],
   ["status", "Pipeline", "#/status"],
 ];
 

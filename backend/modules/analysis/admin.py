@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .infrastructure.models import AnalysisRun, Signal, SymbolAnalysis
+from .infrastructure.models import AnalysisRun, BacktestRun, Signal, SymbolAnalysis
 
 
 @admin.register(AnalysisRun)
@@ -22,3 +22,10 @@ class SymbolAnalysisAdmin(admin.ModelAdmin):
     list_display = ["symbol", "trading_date", "provisional", "support", "resistance", "run"]
     list_filter = ["provisional", "trading_date"]
     search_fields = ["symbol"]
+
+
+@admin.register(BacktestRun)
+class BacktestRunAdmin(admin.ModelAdmin):
+    list_display = ["id", "start_date", "end_date", "status", "symbols_tested", "signals_evaluated", "finished_at"]
+    list_filter = ["status"]
+    readonly_fields = [f.name for f in BacktestRun._meta.fields]

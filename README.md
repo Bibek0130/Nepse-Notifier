@@ -16,7 +16,7 @@ record), Redis (Celery broker, cache and locks), Celery workers + Celery Beat.
 | 1. Market data pipeline (fetch, raw landing, validation, Postgres, Redis cache, events, API) | Done; not yet run against the live sites |
 | 2. Analysis engine (indicators, support/resistance, strategies, forecast, signals) | Done |
 | 3. Email digests (subscribers, per-subscriber filters, SMTP, unsubscribe) | Done |
-| 4. React dashboard (overview and signals, stock charts, quotes, pipeline health) | Done, with watchlists; backtesting still to come |
+| 4. React dashboard (overview and signals, stock charts, quotes, pipeline health), watchlists, backtesting | Done |
 
 ## Layout
 
@@ -102,6 +102,16 @@ python manage.py send_test_digest you@example.com
 
 Every digest links to a settings page (`/notifications/preferences/<token>`) where a subscriber can set their watchlist, which signal strengths they get, and whether they get midday updates, or turn digests back on after unsubscribing. Symbols are checked against the listed stocks. Subscribers with a watchlist get a "Your watchlist" section with each watched stock's price and change. At market close they get it even on days with no signals; midday updates still go out only when there are signals.
 
+## Backtesting
+
+Every Friday at 03:00 (market closed) Beat replays all strategies over the past year, one day at a time, with the engine seeing only the bars it would have had on that day. Each signal is scored on the close-to-close return 5, 10 and 20 trading days later: a hit is a rise for a bullish signal and a fall for a bearish one. The baseline is the same measure over every day, signal or not, so a strategy is only useful if it beats it. Results are stored in `BacktestRun`, served at `GET /api/analysis/backtest`, and shown on the dashboard's Backtest page.
+
+Run one by hand:
+
+```bash
+python manage.py backtest --days 365 [--end 2026-10-12] [--symbols NABIL NICA] [--min-strength 2]
+```
+
 ## Dashboard
 
 The React app (`frontend/`) has four pages, using hash routes so it can be served as static files:
@@ -111,6 +121,7 @@ The React app (`frontend/`) has four pages, using hash routes so it can be serve
 | Overview (`#/`) | Advancers, decliners and turnover, top movers, and the latest signals with direction and strength filters |
 | Stock (`#/stock/NABIL`) | A year of daily candles with SMA 20/50/200 and support/resistance lines, volume and RSI charts that scroll together, the latest indicators, trend projection and signals |
 | Quotes (`#/quotes`) | The latest snapshot for every symbol, filterable |
+| Backtest (`#/backtest`) | How each strategy's past signals played out after 5, 10 and 20 trading days, against prices moving that way on any day |
 | Pipeline (`#/status`) | The latest intraday, end-of-day and backfill run |
 
 Star a stock (☆) on its page or in Quotes to add it to your watchlist. The overview then shows your starred stocks' prices and signal counts, and Overview and Quotes can be filtered to the watchlist. Starred stocks are saved in the browser.
@@ -165,6 +176,7 @@ lint-imports
 | `GET /api/market/status` | Latest run of each kind, without error details |
 | `GET /api/market/runs` (staff only) | Postgres |
 | `GET /api/analysis/signals?direction=&min_strength=&run=` | Latest analysis run |
+| `GET /api/analysis/backtest` | Latest backtest: per-strategy hit rates and returns by horizon and minimum strength |
 | `GET /api/analysis/symbols/NABIL` | Latest indicators, levels, forecast and signals for one symbol |
 
 ## Caveats
