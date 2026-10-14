@@ -152,6 +152,15 @@ powershell -ExecutionPolicy Bypass -File .\run-local.ps1
 
 It creates the venv, installs packages, sets up the database, asks for an admin login the first time, fetches prices (and a year of history on the first run), then opens the server and the dashboard in their own windows. Run it again to fetch the latest prices. `-SkipFetch` starts the servers without fetching; `-NoServers` fetches without starting them.
 
+To get digests by email instead of in the window:
+
+```powershell
+.\run-local.ps1 -Subscribe you@gmail.com   # add a subscriber
+.\run-local.ps1 -SetupEmail                # once: Gmail address + app password, then a test email
+```
+
+Gmail needs an [app password](https://myaccount.google.com/apppasswords) (2-Step Verification must be on), not your normal password. It is saved in `backend/.env`, which git ignores and `config.settings.local` reads.
+
 The same steps by hand:
 
 ```powershell
