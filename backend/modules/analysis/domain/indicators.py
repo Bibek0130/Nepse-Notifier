@@ -97,3 +97,14 @@ def atr(highs, lows, closes, period=14):
     for i in range(period + 1, len(closes)):
         out[i] = (out[i - 1] * (period - 1) + true_ranges[i]) / period
     return out
+
+
+def zscore(values, period):
+    """How many standard deviations each value sits from its own ``period``-bar mean."""
+    out = [None] * len(values)
+    for i in range(period - 1, len(values)):
+        window = values[i - period + 1 : i + 1]
+        mean = sum(window) / period
+        std = (sum((v - mean) ** 2 for v in window) / period) ** 0.5
+        out[i] = (values[i] - mean) / std if std else 0.0
+    return out

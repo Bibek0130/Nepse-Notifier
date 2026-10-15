@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "modules.shared",
     "modules.marketdata",
     "modules.analysis",
+    "modules.analysis.quant",  # admin "Quant" section
     "modules.notifications",
     "modules.accounts",
 ]

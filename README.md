@@ -71,6 +71,8 @@ Intraday runs append the latest snapshot as a provisional bar for today.
 | `volume` / `transactions` | Today's volume or number of trades is at least 2x the 20-day average |
 | `pairs` | Pairs trading (statistical arbitrage): two stocks in the same sector (or, without sectors, among the 60 most traded) whose log-price spread is cointegrated over 120 sessions (Engle-Granger ADF t below -3.34, half-life up to 30 sessions, return correlation at least 0.5) and is now stretched 2 to 3.5 standard deviations. The stock that ran ahead is bearish, the one left behind bullish; target is the price where the spread is back at its mean, stop where it reaches 3.5 sd (2, or 3 at 3+ sd) |
 | `basket_reversion` | Basket mean reversion: the same test of a stock against the equal-weighted basket of its sector peers (2, or 3 at 3+ sd) |
+| `quant_momentum` | Momentum leg of [Poudel & Paudel (2025)](https://www.nepjol.info/index.php/qjmss/article/view/87782), a backtest on NEPSE: RSI(14) crosses above 60 while price is above its 240-day average; stop 4% under entry, target at 1:4.5 risk-reward, 4-day cooldown. A close back below the 240-day average is the exit (2) |
+| `quant_reversion` | Mean-reversion leg of the same paper: close at least 1.5 standard deviations under its 15-day mean (z-score) with RSI at or below 35, still above the 240-day average; stop at the 70-day average (4% if that is above the price, never more than 8%), 1:4.5 target, 3-day cooldown (2) |
 | `forecast` | A linear trend over 20 sessions with a good fit (R² ≥ 0.6) is projected 5 sessions ahead. It describes the trend and is not a prediction |
 
 `pairs` and `basket_reversion` compare stocks with each other, so they run once over the
@@ -79,6 +81,36 @@ Sectors come from `Instrument.sector`, which is filled in through Django admin.
 
 Every strategy can be switched on or off in Django admin under **Analysis > Strategy
 settings** (a row per strategy is created on the next run; new strategies start on).
+
+The paper doesn't publish its exact entry thresholds, so the quant strategies use its base
+case where it gives one and common defaults elsewhere (all in `StrategyConfig`). They need
+about 240 sessions of history per stock and stay silent until it exists. Their predictions
+use a 20-session horizon, since a 1:4.5 target needs room.
+
+### Quant section in admin: accuracy and speed per strategy
+
+Django admin has a **Quant** section listing every strategy with its latest hit rate,
+p-value, profit factor, max drawdown and speed. Open one and press **Evaluate accuracy and
+speed** (pick a period and, optionally, symbols). The evaluation runs in the background
+(a Celery worker, or a thread on a laptop in local mode) and the page refreshes until it's done:
+
+- **Replay over history** (per-stock strategies): walk-forward, each day seeing only the bars
+  up to that day, with every call settled exactly like a live prediction (target, stop or horizon).
+- **Accuracy**: hit rate with a 95% confidence interval, the chance level (calling every day the
+  same way) and a p-value against it; how calls ended (target, stop, expired).
+- **Forecast vs actual**: for calls with a price target, MAE, RMSE and bias between the target
+  and the actual close at the horizon, and how often the target was reached.
+- **Returns and risk**: average and median return, win/loss sizes, profit factor, edge over
+  buying on any day, Sharpe and Sortino, an equity curve (25% of capital per call) with total
+  return, CAGR and max drawdown, losing streaks, and a 1,000-run Monte Carlo bootstrap.
+- **Speed**: milliseconds per stock-day for the whole analysis and for the strategy alone,
+  sessions until calls resolve, and the live pipeline's time per run and per stock.
+- **Live predictions**: the same measures over the predictions the system actually stored.
+  `pairs` and `basket_reversion` compare stocks with each other, so they are scored on live
+  predictions only.
+
+Results are kept in `QuantEvaluation` (logic in `modules/analysis/domain/evaluation.py`).
+A one-year replay over all ~350 stocks takes a few minutes (about 1.2 ms per stock-day).
 
 ### Predictions and the live track record
 

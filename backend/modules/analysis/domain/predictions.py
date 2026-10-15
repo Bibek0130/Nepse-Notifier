@@ -9,7 +9,7 @@ Pure Python.
 from dataclasses import dataclass
 
 DEFAULT_HORIZON = 10  # sessions
-HORIZONS = {"forecast": 5}
+HORIZONS = {"forecast": 5, "quant_momentum": 20, "quant_reversion": 20}  # 1:4.5 targets need room
 
 
 @dataclass(frozen=True)

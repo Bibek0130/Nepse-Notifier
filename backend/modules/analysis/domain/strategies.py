@@ -18,6 +18,19 @@ class StrategyConfig:
     trades_spike_ratio: float = 2.0
     min_forecast_r2: float = 0.6
     min_forecast_slope_pct: float = 0.3
+    # Quant strategies from Poudel & Paudel (2025), tested on NEPSE. The paper does not
+    # publish its entry thresholds; these follow its base case where it gives one.
+    quant_trend_period: int = 240
+    quant_z_window: int = 15
+    quant_z_entry: float = -1.5
+    quant_rsi_oversold: float = 35
+    quant_rsi_momentum: float = 60
+    quant_momentum_stop_pct: float = 4.0
+    quant_reversion_stop_ma: int = 70
+    quant_max_stop_pct: float = 8.0
+    quant_reward_risk: float = 4.5
+    quant_momentum_cooldown: int = 4
+    quant_reversion_cooldown: int = 3
 
 
 @dataclass(frozen=True)
@@ -34,6 +47,9 @@ class Context:
     ema5: list
     ema8: list
     ema13: list
+    trend_ma: list  # quant regime filter (240-day average)
+    stop_ma: list  # quant mean-reversion stop reference (70-day average)
+    zscore: list  # close versus its 15-day mean, in standard deviations
     avg_volume20: float | None
     avg_trades20: float | None
     support: object  # Level | None
@@ -153,6 +169,73 @@ def ema_ribbon(ctx):
                      {**values, "recent_high": stop})
 
 
+def _fired_within(condition, days):
+    """True if ``condition(offset)`` held on any of the ``days`` bars before the last one."""
+    return any(condition(k) for k in range(1, days + 1))
+
+
+def _quant_levels(close, stop, reward_risk):
+    return round(stop, 2), round(close + reward_risk * (close - stop), 1)
+
+
+def quant_momentum(ctx):
+    """Momentum leg of Poudel & Paudel (2025): RSI breaks above 60 while price is above its 240-day average.
+
+    Stop 4% under entry, target at 1:4.5 risk-reward, then a 4-day cooldown. A close
+    back below the 240-day average is the exit (the paper moves to cash in downtrends).
+    """
+    s, cfg, closes = ctx.series, ctx.config, ctx.series.closes
+    trend_now = ctx.trend_ma[-1]
+    if trend_now is None or len(closes) < cfg.quant_momentum_cooldown + 2:
+        return
+
+    def crossed(k):  # RSI crossed the momentum level on bar -1-k, inside the uptrend
+        i = len(closes) - 1 - k
+        prev, cur, ma = ctx.rsi14[i - 1], ctx.rsi14[i], ctx.trend_ma[i]
+        return None not in (prev, cur, ma) and prev <= cfg.quant_rsi_momentum < cur and closes[i] > ma
+
+    if crossed(0) and not _fired_within(crossed, cfg.quant_momentum_cooldown):
+        close = closes[-1]
+        stop, target = _quant_levels(close, close * (1 - cfg.quant_momentum_stop_pct / 100), cfg.quant_reward_risk)
+        yield Signal("quant_momentum", Direction.BULLISH, 2,
+                     f"Quant momentum: RSI broke above {cfg.quant_rsi_momentum:g} with price above its "
+                     f"{cfg.quant_trend_period}-day average; stop {stop:g}, 1:{cfg.quant_reward_risk:g} target {target:g}",
+                     {"rsi14": ctx.rsi14[-1], "trend_ma": round(trend_now, 2), "stop": stop, "target": target})
+    elif ind.crossed_below(closes, ctx.trend_ma):
+        yield Signal("quant_momentum", Direction.BEARISH, 2,
+                     f"Quant exit: price closed below its {cfg.quant_trend_period}-day average, the long-term trend turned down",
+                     {"close": closes[-1], "trend_ma": round(trend_now, 2), "recent_high": max(s.highs[-5:])})
+
+
+def quant_reversion(ctx):
+    """Mean-reversion leg of Poudel & Paudel (2025): buy a panic dip inside a long-term uptrend.
+
+    The close is stretched below its 15-day mean (z-score) and RSI is oversold, while price
+    is still above the 240-day average. Stop at the 70-day average (at most 8% away, 4% if
+    the average is above the price), target 1:4.5, then a 3-day cooldown.
+    """
+    cfg, closes = ctx.config, ctx.series.closes
+    if ctx.trend_ma[-1] is None or len(closes) < cfg.quant_reversion_cooldown + 2:
+        return
+
+    def oversold(k):
+        i = len(closes) - 1 - k
+        z, r, ma = ctx.zscore[i], ctx.rsi14[i], ctx.trend_ma[i]
+        return None not in (z, r, ma) and z <= cfg.quant_z_entry and r <= cfg.quant_rsi_oversold and closes[i] > ma
+
+    if not oversold(0) or _fired_within(oversold, cfg.quant_reversion_cooldown):
+        return
+    close, stop_ma = closes[-1], ctx.stop_ma[-1]
+    stop = stop_ma if stop_ma is not None and stop_ma < close else close * (1 - cfg.quant_momentum_stop_pct / 100)
+    stop = max(stop, close * (1 - cfg.quant_max_stop_pct / 100))
+    stop, target = _quant_levels(close, stop, cfg.quant_reward_risk)
+    yield Signal("quant_reversion", Direction.BULLISH, 2,
+                 f"Quant mean reversion: {ctx.zscore[-1]:.1f} standard deviations under its {cfg.quant_z_window}-day mean, "
+                 f"RSI {ctx.rsi14[-1]:.0f}, still above the {cfg.quant_trend_period}-day trend; stop {stop:g}, target {target:g}",
+                 {"zscore": round(ctx.zscore[-1], 2), "rsi14": ctx.rsi14[-1], "trend_ma": round(ctx.trend_ma[-1], 2),
+                  "stop": stop, "target": target})
+
+
 def trend_projection(ctx):
     f, cfg = ctx.forecast, ctx.config
     if not f or f.r_squared < cfg.min_forecast_r2 or abs(f.slope_pct_per_day) < cfg.min_forecast_slope_pct:
@@ -174,6 +257,8 @@ REGISTRY = {
     "breakout": breakout,
     "volume": volume_spike,
     "forecast": trend_projection,
+    "quant_momentum": quant_momentum,
+    "quant_reversion": quant_reversion,
 }
 STRATEGIES = list(REGISTRY.values())
 
@@ -192,6 +277,8 @@ DESCRIPTIONS = {
     "breakout": "Close through support or resistance, with volume confirmation",
     "volume": "Volume or transactions at least 2x the 20-day average",
     "forecast": "Steady linear trend projected 5 sessions ahead",
+    "quant_momentum": "Quant momentum (Poudel & Paudel 2025): RSI breaks 60 above the 240-day trend, 4% stop, 1:4.5 target",
+    "quant_reversion": "Quant mean reversion (Poudel & Paudel 2025): 15-day z-score dip with RSI oversold above the 240-day trend",
     **CROSS_SECTIONAL,
 }
 
