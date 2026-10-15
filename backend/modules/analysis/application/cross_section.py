@@ -1,9 +1,9 @@
-"""Use case: run the strategies that compare stocks with each other (pairs, basket) over a whole run."""
+"""Use case: run the strategies that compare stocks with each other (pairs, basket, PCA leaders) over a whole run."""
 import logging
 
 from modules.marketdata import public as marketdata
 
-from ..domain import stat_arb
+from ..domain import pca, stat_arb
 from ..infrastructure import repositories
 from ..infrastructure.models import AnalysisRun, SymbolAnalysis
 from .series import load_series
@@ -34,17 +34,24 @@ def groups_for(series_by_symbol, sectors):
 
 
 def run_cross_sectional(run_id, enabled):
-    """Add pairs / basket signals to a run's analysed symbols. Returns how many were added."""
-    if not enabled & {stat_arb.STRATEGY_PAIRS, stat_arb.STRATEGY_BASKET}:
+    """Add pairs / basket / PCA leader signals to a run's analysed symbols. Returns how many were added."""
+    stat_arb_on = bool(enabled & {stat_arb.STRATEGY_PAIRS, stat_arb.STRATEGY_BASKET})
+    pca_on = pca.STRATEGY in enabled
+    if not stat_arb_on and not pca_on:
         return 0
     run = AnalysisRun.objects.get(pk=run_id)
     symbols = list(SymbolAnalysis.objects.filter(run=run).values_list("symbol", flat=True))
     series = {s: load_series(s, run.trading_date, run.timeframe) for s in symbols}
-    series = {s: v for s, v in series.items() if len(v) >= stat_arb.LOOKBACK}
+    series = {s: v for s, v in series.items() if len(v) >= min(stat_arb.LOOKBACK, pca.LOOKBACK + 1)}
     groups = groups_for(series, marketdata.get_sectors())
-    found = stat_arb.scan(
-        {s: v.dates for s, v in series.items()}, {s: v.closes for s, v in series.items()}, groups,
-    )
+    dates = {s: v.dates for s, v in series.items()}
+    closes = {s: v.closes for s, v in series.items()}
+    found = stat_arb.scan(dates, closes, groups) if stat_arb_on else []
+    if pca_on:
+        try:
+            found += pca.scan(dates, closes, groups)
+        except Exception:
+            logger.exception("Run %s: PCA leaders scan failed", run_id)  # pairs / basket signals still go out
     found = [(symbol, signal) for symbol, signal in found if signal.strategy in enabled]
     repositories.add_signals(run_id, found)
     logger.info("Run %s: %d cross-sectional signals over %d groups", run_id, len(found), len(groups))

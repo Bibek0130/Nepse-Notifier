@@ -89,8 +89,8 @@ def scorecard(days=180):
     return {"days": days, "since": since.isoformat(), "strategies": summarize(rows)}
 
 
-# Shown first on the dashboard: the strategies from the NEPSE paper, then the rest.
-FEATURED = ("quant_momentum", "quant_reversion")
+# Shown first on the dashboard: the NEPSE research strategies (the paper, then the PCA study), then the rest.
+FEATURED = ("quant_momentum", "quant_reversion", "pca_leaders")
 
 
 def _evaluation_summary(m):

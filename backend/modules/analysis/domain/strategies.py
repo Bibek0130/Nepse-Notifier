@@ -266,6 +266,7 @@ STRATEGIES = list(REGISTRY.values())
 CROSS_SECTIONAL = {
     "pairs": "Pairs trading: two related stocks whose price gap is stretched (z-score 2+) and has reliably closed before",
     "basket_reversion": "Basket mean reversion: a stock stretched away from its sector (or market) basket, expected to revert",
+    "pca_leaders": "PCA sector leaders (Piyush-Quant): in a sideways market, buy the top-loading stocks of a driver sector once it turns up",
 }
 
 DESCRIPTIONS = {

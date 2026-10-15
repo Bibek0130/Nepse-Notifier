@@ -12,6 +12,7 @@ export const STRATEGY_LABELS = {
   ema_5_8_13: "5-8-13 EMA",
   pairs: "Pairs trading",
   basket_reversion: "Basket reversion",
+  pca_leaders: "PCA sector leaders",
   quant_momentum: "Quant momentum",
   quant_reversion: "Quant mean reversion",
 };
