@@ -17,6 +17,7 @@ export const marketApi = {
 };
 
 export const analysisApi = {
+  strategies: () => getJson("analysis/strategies"),
   signals: (params) => getJson("analysis/signals", params),
   symbol: (symbol) => getJson(`analysis/symbols/${encodeURIComponent(symbol)}`),
   backtest: () => getJson("analysis/backtest"),

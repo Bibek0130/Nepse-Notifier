@@ -9,6 +9,11 @@ export const STRATEGY_LABELS = {
   volume: "Volume",
   transactions: "Transactions",
   forecast: "Forecast",
+  ema_5_8_13: "5-8-13 EMA",
+  pairs: "Pairs trading",
+  basket_reversion: "Basket reversion",
+  quant_momentum: "Quant momentum",
+  quant_reversion: "Quant mean reversion",
 };
 
 const ARROWS = { bullish: "▲", bearish: "▼", neutral: "■" };

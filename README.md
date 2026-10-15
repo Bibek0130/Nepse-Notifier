@@ -184,13 +184,14 @@ The React app (`frontend/`) has four pages, using hash routes so it can be serve
 
 | Page | Shows |
 |---|---|
-| Overview (`#/`) | Advancers, decliners and turnover, top movers, and the latest signals with direction and strength filters |
+| Strategies (`#/`, the opening page) | Every strategy, the paper's quant strategies first: on or off, its calls in the latest run, and its latest Quant evaluation (hit rate against chance, average return, profit factor, drawdown, target error, speed), linking to the full evaluation in admin. Served by `GET /api/analysis/strategies` |
+| Market (`#/market`) | Advancers, decliners and turnover, top movers, and the latest signals with direction and strength filters |
 | Stock (`#/stock/NABIL`) | A year of daily candles with SMA 20/50/200 and support/resistance lines, volume and RSI charts that scroll together, the latest indicators, trend projection and signals |
 | Quotes (`#/quotes`) | The latest snapshot for every symbol, filterable |
 | Backtest (`#/backtest`) | How each strategy's past signals played out after 5, 10 and 20 trading days, against prices moving that way on any day |
 | Pipeline (`#/status`) | The latest intraday, end-of-day and backfill run |
 
-Star a stock (☆) on its page or in Quotes to add it to your watchlist. The overview then shows your starred stocks' prices and signal counts, and Overview and Quotes can be filtered to the watchlist. Starred stocks are saved in the browser.
+Star a stock (☆) on its page or in Quotes to add it to your watchlist. The Market page then shows your starred stocks' prices and signal counts, and Market and Quotes can be filtered to the watchlist. Starred stocks are saved in the browser.
 
 Charts use [lightweight-charts](https://github.com/tradingview/lightweight-charts) and follow the OS light or dark setting.
 

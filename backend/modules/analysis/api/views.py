@@ -59,3 +59,10 @@ class ScorecardView(APIView):
         except ValueError:
             days = 180
         return Response(queries.scorecard(days))
+
+
+class StrategiesView(APIView):
+    """Every strategy for the dashboard's opening page: switch, latest evaluation, track record, today's calls."""
+
+    def get(self, request):
+        return Response(queries.strategies_overview())
