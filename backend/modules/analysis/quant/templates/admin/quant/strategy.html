@@ -1,0 +1,86 @@
+{% extends "admin/base_site.html" %}
+{% block extrahead %}{{ block.super }}
+{% if running %}<meta http-equiv="refresh" content="5">{% endif %}
+<style>
+  .quant-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 12px 0 24px; }
+  .quant-card { border: 1px solid var(--hairline-color); border-radius: 6px; padding: 12px 16px; }
+  .quant-card h3 { margin: 0 0 8px; font-size: 14px; }
+  .quant-card table { width: 100%; }
+  .quant-card td { vertical-align: top; padding: 4px 6px; }
+  .quant-card td.v { font-weight: 600; min-width: 90px; }
+  .quant-card td:first-child { width: 28%; }
+  .quant-card td.h { color: var(--body-quiet-color); font-size: 12px; }
+  .quant-form { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin: 12px 0; }
+</style>
+{% endblock %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a> › <a href="{% url 'admin:app_list' 'quant' %}">Quant</a>
+  › <a href="{% url 'admin:quant_quantstrategy_changelist' %}">Quant strategies</a> › {{ strategy.name }}
+</div>
+{% endblock %}
+{% block content %}
+<p>{{ strategy.description }}. Currently <strong>{{ strategy.enabled|yesno:"on,off" }}</strong> in live analysis.</p>
+<p>
+{% if replayable %}
+  An evaluation replays this strategy day by day over past prices (each day sees only the bars up to that day),
+  settles every call the same way live predictions are settled (target, stop, or the close at the horizon),
+  and times how long it takes. It also scores the predictions the live pipeline stored over the same period.
+{% else %}
+  This strategy compares stocks with each other, so it can't be replayed one stock at a time. An evaluation
+  scores the predictions the live pipeline stored for it over the chosen period.
+{% endif %}
+</p>
+
+<form method="post" class="quant-form">{% csrf_token %}
+  <label>Period<br><select name="days">{% for days, label in periods %}<option value="{{ days }}"{% if days == default_days %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  {% if replayable %}<label>Symbols (blank for all)<br><input type="text" name="symbols" placeholder="NABIL NICA" size="30"></label>{% endif %}
+  <input type="submit" class="default" value="Evaluate accuracy and speed"{% if running %} disabled{% endif %}>
+  {% if running %}<span>Evaluation running…</span>{% endif %}
+</form>
+
+{% if latest %}
+  <h2>Latest result: {{ latest.start_date }} to {{ latest.end_date }}</h2>
+  <p>{% if replayable %}{{ latest.symbols_tested }} symbols replayed in {{ latest.duration_seconds }} s.{% endif %}
+     Finished {{ latest.finished_at|date:"Y-m-d H:i" }}.</p>
+  {% if replay_sections %}
+    <h3>Replay over history</h3>
+    <div class="quant-grid">{% for title, rows in replay_sections %}
+      <div class="quant-card"><h3>{{ title }}</h3><table>{% for label, value, help in rows %}
+        <tr><td>{{ label }}</td><td class="v">{{ value }}</td><td class="h">{{ help }}</td></tr>{% endfor %}</table></div>{% endfor %}
+    </div>
+  {% elif replayable %}<p>No calls in the replay: not enough price history in this period (the quant strategies need about 240 sessions).</p>{% endif %}
+
+  <h3>Live predictions over the same period</h3>
+  {% if live_sections %}
+    <div class="quant-grid">{% for title, rows in live_sections %}
+      <div class="quant-card"><h3>{{ title }}</h3><table>{% for label, value, help in rows %}
+        <tr><td>{{ label }}</td><td class="v">{{ value }}</td><td class="h">{{ help }}</td></tr>{% endfor %}</table></div>{% endfor %}
+    </div>
+  {% else %}<p>No live predictions from this strategy in this period yet.</p>{% endif %}
+  {% if pipeline and pipeline.runs %}
+    <p>Live pipeline speed (all strategies): {{ pipeline.avg_run_seconds }} s per analysis run, {{ pipeline.ms_per_symbol }} ms per stock, over the last {{ pipeline.runs }} runs.</p>
+  {% endif %}
+
+  {% if trades %}
+    <h3>Most recent replayed calls</h3>
+    <table><thead><tr><th>Symbol</th><th>Called on</th><th>Direction</th><th>Entry</th><th>Target</th><th>Stop</th><th>Outcome</th><th>Exit</th><th>Sessions</th><th>Return</th><th>Right?</th></tr></thead>
+    <tbody>{% for t in trades %}
+      <tr><td>{{ t.symbol }}</td><td>{{ t.made_on }}</td><td>{{ t.direction }}</td><td>{{ t.entry }}</td><td>{{ t.target|default:"–" }}</td><td>{{ t.stop|default:"–" }}</td>
+          <td>{{ t.outcome }}</td><td>{{ t.exit_price }} on {{ t.exit_date }}</td><td>{{ t.sessions }}</td><td>{{ t.return_pct }}%</td><td>{{ t.correct|yesno:"yes,no" }}</td></tr>{% endfor %}
+    </tbody></table>
+  {% endif %}
+{% elif not running %}
+  <p>Not evaluated yet.</p>
+{% endif %}
+
+{% if history %}
+  <h3>Evaluation history</h3>
+  <table><thead><tr><th>#</th><th>Period</th><th>Status</th><th>Symbols</th><th>Hit rate</th><th>Took</th><th>Finished</th></tr></thead>
+  <tbody>{% for ev in history %}
+    <tr><td>{{ ev.pk }}</td><td>{{ ev.start_date }} to {{ ev.end_date }}</td><td>{{ ev.status }}{% if ev.error %}: {{ ev.error|truncatechars:80 }}{% endif %}</td>
+        <td>{{ ev.symbols_tested }}</td><td>{{ ev.metrics.accuracy.hit_rate|default:"–" }}{% if ev.metrics.accuracy.hit_rate is not None %}%{% endif %}</td>
+        <td>{{ ev.duration_seconds|default:"–" }} s</td><td>{{ ev.finished_at|date:"Y-m-d H:i"|default:"–" }}</td></tr>{% endfor %}
+  </tbody></table>
+{% endif %}
+{% endblock %}

@@ -34,6 +34,9 @@ def analyze(series: PriceSeries, config: StrategyConfig = StrategyConfig(), stra
         ema5=ind.ema(closes, 5),
         ema8=ind.ema(closes, 8),
         ema13=ind.ema(closes, 13),
+        trend_ma=ind.sma(closes, config.quant_trend_period),
+        stop_ma=ind.sma(closes, config.quant_reversion_stop_ma),
+        zscore=ind.zscore(closes, config.quant_z_window),
         # Averages exclude today so a spike is measured against normal days.
         avg_volume20=ind.average(series.volumes, 20, exclude_last=True),
         avg_trades20=ind.average(trades, 20, exclude_last=True) if len(trades) > 20 else None,

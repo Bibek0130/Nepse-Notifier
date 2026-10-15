@@ -165,3 +165,48 @@ class Prediction(models.Model):
 
     def __str__(self):
         return f"{self.symbol} {self.strategy} {self.direction} {self.made_on}"
+
+
+class QuantStrategy(StrategySetting):
+    """Admin entry point for the Quant section: one row per strategy, opening its evaluation page."""
+
+    class Meta:
+        proxy = True
+        app_label = "quant"
+        verbose_name = "quant strategy"
+        verbose_name_plural = "quant strategies"
+
+
+class QuantEvaluation(models.Model):
+    """One accuracy and speed check of a strategy: a walk-forward replay plus its live track record.
+
+    ``metrics`` holds the replay's measures (see ``domain.evaluation.metrics``), ``live`` the same
+    measures over the strategy's stored predictions, and ``trades`` a sample of recent replayed calls.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running"
+        OK = "ok"
+        FAILED = "failed"
+
+    strategy = models.CharField(max_length=30, db_index=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RUNNING)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    symbols = models.JSONField(default=list, blank=True, help_text="Symbols asked for; empty means all")
+    symbols_tested = models.IntegerField(default=0)
+    parameters = models.JSONField(default=dict)
+    metrics = models.JSONField(default=dict)
+    live = models.JSONField(default=dict)
+    trades = models.JSONField(default=list)
+    duration_seconds = models.FloatField(null=True, blank=True)
+    error = models.TextField(blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = "quant"
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"{self.strategy} evaluation #{self.pk} ({self.status})"
