@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 
-// Hash routes keep the app deployable as static files: #/, #/stock/NABIL, #/quotes, #/status
+// Hash routes keep the app deployable as static files: #/ (strategies), #/market, #/stock/NABIL, #/quotes, #/status
 function parse(hash) {
   const [page = "", param] = hash.replace(/^#\/?/, "").split("/");
-  return { page: page || "overview", param: param ? decodeURIComponent(param).toUpperCase() : null };
+  return { page: page || "strategies", param: param ? decodeURIComponent(param).toUpperCase() : null };
 }
 
 export function useRoute() {

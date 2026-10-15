@@ -171,3 +171,19 @@ class QuantAdminTests(TestCase):
         evaluation = quant.run_evaluation(quant.start_evaluation("pairs", days=90, end=date(2026, 9, 30)).pk)
         self.assertEqual(evaluation.metrics, {})
         self.assertEqual((evaluation.live["settled"], evaluation.live["accuracy"]["hit_rate"]), (1, 100.0))
+
+
+class StrategiesApiTests(TestCase):
+    def test_paper_strategies_come_first_with_latest_evaluation(self):
+        seed("CLIMB", [100 + i * 0.8 for i in range(120)], date(2026, 6, 1))
+        quant.run_evaluation(quant.start_evaluation("forecast", days=90, end=date(2026, 9, 28)).pk)
+        body = self.client.get("/api/analysis/strategies").json()
+        names = [s["name"] for s in body["strategies"]]
+        self.assertEqual(names[:2], ["quant_momentum", "quant_reversion"])
+        self.assertEqual(len(names), 12)
+        forecast = next(s for s in body["strategies"] if s["name"] == "forecast")
+        self.assertEqual(forecast["evaluation"]["replay"]["hit_rate"], 100.0)
+        self.assertTrue(forecast["enabled"])
+        self.assertIsNotNone(forecast["admin_id"])
+        self.assertIsNone(body["strategies"][0]["evaluation"])
+        self.assertEqual(body["strategies"][0]["today"], {"count": 0, "signals": []})

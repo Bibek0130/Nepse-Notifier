@@ -3,7 +3,12 @@ from datetime import timedelta
 from django.utils import timezone
 
 from ..domain.predictions import summarize
-from ..infrastructure.models import AnalysisRun, BacktestRun, Prediction, Signal, SymbolAnalysis
+from ..domain.strategies import DESCRIPTIONS
+from ..infrastructure.models import (
+    AnalysisRun, BacktestRun, Prediction, QuantEvaluation, Signal, StrategySetting, SymbolAnalysis,
+)
+from .quant import can_replay
+from .strategies import sync_settings
 
 
 def signal_dict(s: Signal):
@@ -82,3 +87,73 @@ def scorecard(days=180):
     since = timezone.localdate() - timedelta(days=days)
     rows = Prediction.objects.filter(made_on__gte=since).values("strategy", "direction", "outcome", "return_pct", "correct")
     return {"days": days, "since": since.isoformat(), "strategies": summarize(rows)}
+
+
+# Shown first on the dashboard: the strategies from the NEPSE paper, then the rest.
+FEATURED = ("quant_momentum", "quant_reversion")
+
+
+def _evaluation_summary(m):
+    if not m or not m.get("settled"):
+        return None
+    a, r, k, s = m["accuracy"], m["returns"], m["risk"], m["speed"]
+    return {
+        "settled": m["settled"],
+        "hit_rate": a["hit_rate"],
+        "hit_rate_ci95": a["hit_rate_ci95"],
+        "chance_hit_rate": a["chance_hit_rate"],
+        "p_value": a["p_value"],
+        "avg_return_pct": r["avg_return_pct"],
+        "profit_factor": r["profit_factor"],
+        "sharpe": r["sharpe"],
+        "max_drawdown_pct": k["max_drawdown_pct"],
+        "mae_pct": m["forecast_error"]["mae_pct"],
+        "ms_per_bar": s.get("analysis_ms_per_bar"),
+        "sessions_to_resolve": s.get("avg_sessions_to_resolve"),
+    }
+
+
+def strategies_overview(days=180):
+    """Every strategy with its switch, latest Quant evaluation, live track record and today's calls."""
+    sync_settings()
+    settings = {s.name: s for s in StrategySetting.objects.all()}
+    latest = {}
+    for ev in QuantEvaluation.objects.filter(status=QuantEvaluation.Status.OK).order_by("-finished_at"):
+        latest.setdefault(ev.strategy, ev)
+    live = {row["strategy"]: row for row in scorecard(days)["strategies"]}
+    run = latest_run()
+    todays = {}
+    if run:
+        for s in Signal.objects.filter(run=run).order_by("-strength", "symbol"):
+            todays.setdefault(s.strategy, []).append(signal_dict(s))
+
+    names = [*FEATURED, *(n for n in DESCRIPTIONS if n not in FEATURED)]
+    rows = []
+    for name in names:
+        setting, ev = settings.get(name), latest.get(name)
+        calls = todays.get(name, []) + (todays.get("transactions", []) if name == "volume" else [])
+        rows.append({
+            "name": name,
+            "description": DESCRIPTIONS[name],
+            "featured": name in FEATURED,
+            "enabled": setting.enabled if setting else True,
+            "admin_id": setting.pk if setting else None,
+            "can_replay": can_replay(name),
+            "evaluation": {
+                "id": ev.pk,
+                "start_date": ev.start_date.isoformat(),
+                "end_date": ev.end_date.isoformat(),
+                "finished_at": ev.finished_at.isoformat(),
+                "symbols_tested": ev.symbols_tested,
+                "replay": _evaluation_summary(ev.metrics),
+                "live": _evaluation_summary(ev.live),
+            } if ev else None,
+            "live": live.get(name),
+            "today": {"count": len(calls), "signals": calls[:5]},
+        })
+    return {
+        "trading_date": run.trading_date.isoformat() if run else None,
+        "provisional": run.provisional if run else None,
+        "days": days,
+        "strategies": rows,
+    }

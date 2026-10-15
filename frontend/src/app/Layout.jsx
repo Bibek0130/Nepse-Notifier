@@ -1,7 +1,8 @@
 import { useThemePreference } from "../hooks/useColorScheme";
 
 const NAV = [
-  ["overview", "Overview", "#/"],
+  ["strategies", "Strategies", "#/"],
+  ["market", "Market", "#/market"],
   ["quotes", "Quotes", "#/quotes"],
   ["stock", "Stock", "#/stock"],
   ["backtest", "Backtest", "#/backtest"],
