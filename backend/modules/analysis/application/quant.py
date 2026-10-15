@@ -19,7 +19,7 @@ DEFAULT_DAYS = 365
 
 
 def can_replay(strategy):
-    """Per-symbol strategies replay over history; pairs and basket are scored on live predictions only."""
+    """Per-symbol strategies replay over history; pairs, basket and PCA leaders are scored on live predictions only."""
     return strategy in REGISTRY
 
 

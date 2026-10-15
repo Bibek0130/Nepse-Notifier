@@ -139,6 +139,32 @@ class PairsFlowTests(TestCase):
         self.assertTrue(Prediction.objects.filter(strategy="pairs", symbol="PAIRB", target_price__isnull=False).exists())
 
 
+class PcaLeadersFlowTests(TestCase):
+    def test_sector_leaders_from_full_run_with_imported_sectors(self):
+        import os
+        import tempfile
+
+        from django.core.management import call_command
+
+        from .test_pca import sideways_market
+
+        _, closes, groups = sideways_market()
+        for symbol, prices in closes.items():
+            market_repo.upsert_candles(daily(symbol, prices, [1000] * len(prices)))
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as f:
+            f.write("symbol,sector\n" + "".join(f"{m.lower()},{name}\n" for name, ms in groups.items() for m in ms) + "XYZ,Hotels\n")
+        self.addCleanup(os.remove, f.name)
+        call_command("import_sectors", f.name, stdout=open(os.devnull, "w"))
+        with mock.patch("modules.analysis.application.run.events.publish"):
+            on_candles_ingested.delay(9, "1D", TODAY.isoformat(), sorted(closes)).get()
+        calls = set(Signal.objects.filter(strategy="pca_leaders").values_list("symbol", "direction"))
+        self.assertIn(("B1", "bullish"), calls)
+        self.assertTrue(all(symbol.startswith("B") for symbol, _ in calls))
+        prediction = Prediction.objects.get(strategy="pca_leaders", symbol="B1")
+        self.assertEqual(prediction.horizon, 60)
+        self.assertIsNotNone(prediction.target_price)
+
+
 class StrategyAdminTests(TestCase):
     def test_switches_listed_before_any_run(self):
         from django.contrib.auth.models import User
@@ -147,4 +173,4 @@ class StrategyAdminTests(TestCase):
         response = self.client.get("/admin/analysis/strategysetting/")
         self.assertContains(response, "pairs")
         self.assertContains(response, "ema_5_8_13")
-        self.assertEqual(StrategySetting.objects.count(), 12)
+        self.assertEqual(StrategySetting.objects.count(), 13)

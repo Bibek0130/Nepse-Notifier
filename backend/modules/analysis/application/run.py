@@ -47,7 +47,7 @@ def finish_run(run_id):
     try:
         run_cross_sectional(run_id, enabled_names())
     except Exception:
-        logger.exception("Run %s: pairs / basket scan failed", run_id)  # per-symbol signals still go out
+        logger.exception("Run %s: cross-sectional scan failed", run_id)  # per-symbol signals still go out
     run = AnalysisRun.objects.get(pk=run_id)
     if not run.provisional:
         try:

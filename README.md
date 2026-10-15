@@ -73,11 +73,14 @@ Intraday runs append the latest snapshot as a provisional bar for today.
 | `basket_reversion` | Basket mean reversion: the same test of a stock against the equal-weighted basket of its sector peers (2, or 3 at 3+ sd) |
 | `quant_momentum` | Momentum leg of [Poudel & Paudel (2025)](https://www.nepjol.info/index.php/qjmss/article/view/87782), a backtest on NEPSE: RSI(14) crosses above 60 while price is above its 240-day average; stop 4% under entry, target at 1:4.5 risk-reward, 4-day cooldown. A close back below the 240-day average is the exit (2) |
 | `quant_reversion` | Mean-reversion leg of the same paper: close at least 1.5 standard deviations under its 15-day mean (z-score) with RSI at or below 35, still above the 240-day average; stop at the 70-day average (4% if that is above the price, never more than 8%), 1:4.5 target, 3-day cooldown (2) |
+| `pca_leaders` | PCA sector leaders, from [Piyush-Quant's NEPSE PCA study](https://github.com/Piyush-Quant/Trading-Strategies-Nepal-/blob/main/1.%20PCA%20in%20Nepse/01.%20Readme.md): only while the market (equal-weighted over every stock) moved less than 10% in 120 sessions. PCA on the sector indices' daily returns finds the 2 sectors weighing most on the first component; one that fell over the window and closes back above its 20-day average has turned up, and PCA inside it picks its top 3 stocks by loading (at least half the top loading) as buys. Stop under the lowest of the last 10 closes (at most 10% away), 1:3 target, 60-session horizon (2, or 3 when the sector also breaks its 20-day high). Without sectors, the first component of the 60 most-traded stocks stands in for the driver sector and its top 5 stocks are the leaders |
 | `forecast` | A linear trend over 20 sessions with a good fit (R² ≥ 0.6) is projected 5 sessions ahead. It describes the trend and is not a prediction |
 
-`pairs` and `basket_reversion` compare stocks with each other, so they run once over the
-whole run in `finish_run` rather than per symbol (`modules/analysis/domain/stat_arb.py`).
-Sectors come from `Instrument.sector`, which is filled in through Django admin.
+`pairs`, `basket_reversion` and `pca_leaders` compare stocks with each other, so they run once
+over the whole run in `finish_run` rather than per symbol (`modules/analysis/domain/stat_arb.py`,
+`modules/analysis/domain/pca.py`). Sectors come from `Instrument.sector`, which is filled in
+through Django admin, or all at once from a CSV with `symbol,sector` rows:
+`python manage.py import_sectors sectors.csv`.
 
 Every strategy can be switched on or off in Django admin under **Analysis > Strategy
 settings** (a row per strategy is created on the next run; new strategies start on).
@@ -106,8 +109,8 @@ speed** (pick a period and, optionally, symbols). The evaluation runs in the bac
 - **Speed**: milliseconds per stock-day for the whole analysis and for the strategy alone,
   sessions until calls resolve, and the live pipeline's time per run and per stock.
 - **Live predictions**: the same measures over the predictions the system actually stored.
-  `pairs` and `basket_reversion` compare stocks with each other, so they are scored on live
-  predictions only.
+  `pairs`, `basket_reversion` and `pca_leaders` compare stocks with each other, so they are
+  scored on live predictions only.
 
 Results are kept in `QuantEvaluation` (logic in `modules/analysis/domain/evaluation.py`).
 A one-year replay over all ~350 stocks takes a few minutes (about 1.2 ms per stock-day).
