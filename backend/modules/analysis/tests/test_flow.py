@@ -137,3 +137,14 @@ class PairsFlowTests(TestCase):
         pairs = dict(Signal.objects.filter(strategy="pairs").values_list("symbol", "direction"))
         self.assertEqual(pairs, {"PAIRA": "bearish", "PAIRB": "bullish"})
         self.assertTrue(Prediction.objects.filter(strategy="pairs", symbol="PAIRB", target_price__isnull=False).exists())
+
+
+class StrategyAdminTests(TestCase):
+    def test_switches_listed_before_any_run(self):
+        from django.contrib.auth.models import User
+
+        self.client.force_login(User.objects.create_superuser("admin", "a@example.com", "pw"))
+        response = self.client.get("/admin/analysis/strategysetting/")
+        self.assertContains(response, "pairs")
+        self.assertContains(response, "ema_5_8_13")
+        self.assertEqual(StrategySetting.objects.count(), 10)
