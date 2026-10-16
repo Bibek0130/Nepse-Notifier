@@ -28,7 +28,7 @@
     powershell -ExecutionPolicy Bypass -File .\run-local.ps1 -Subscribe you@gmail.com
 #>
 param(
-    [int]$HistoryDays = 365,  # how much history to download on the first run
+    [int]$HistoryDays = 730,  # how much history to download while too little is saved
     [switch]$SkipFetch,       # start the servers without fetching new prices
     [switch]$NoServers,       # set up and fetch only; don't start the servers
     [switch]$SetupEmail,      # save Gmail login so digests are emailed, not printed
@@ -147,13 +147,16 @@ if ($admins -eq "0") {
 }
 
 # --- Prices -------------------------------------------------------------------
-$firstRun = (DjangoValue "from modules.marketdata.infrastructure.models import Candle; print(Candle.objects.filter(timeframe='1D').values('trading_date').distinct().count())") -as [int]
+# The quant strategies need about 240 sessions of history; download more while less is saved
+# (at most once a day, in case the source simply has no more).
+$sessions = (DjangoValue "from modules.marketdata.infrastructure.models import Candle; print(Candle.objects.filter(timeframe='1D').values('trading_date').distinct().count())") -as [int]
+$backfilledToday = DjangoValue "from django.utils import timezone; from modules.marketdata.infrastructure.models import IngestionRun; print(IngestionRun.objects.filter(kind='backfill', started_at__date=timezone.localdate()).exists())"
 if (-not $SkipFetch) {
     try {
         Step "Fetching today's prices, then analysing them"
         Django ingest_market --kind eod --force
-        if ($firstRun -lt 30) {
-            Step "Downloading $HistoryDays days of history for every stock. This takes a while; the digest prints at the end."
+        if ($sessions -lt 250 -and $backfilledToday -ne "True") {
+            Step "Only $sessions days of prices saved; downloading $HistoryDays days of history for every stock. This takes a while; the digest prints at the end."
             Django backfill_history --days $HistoryDays
         }
     } catch {

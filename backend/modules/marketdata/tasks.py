@@ -14,7 +14,7 @@ def ingest_market(self, kind="intraday", force=False):
 
 
 @shared_task
-def backfill_history(symbols=None, days=365):
+def backfill_history(symbols=None, days=730):
     return backfill_use_case(symbols, days=days).pk
 
 
