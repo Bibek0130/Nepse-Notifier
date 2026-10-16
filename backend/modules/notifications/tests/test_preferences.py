@@ -36,6 +36,7 @@ class PreferencesPageTests(TestCase):
         page = self.client.get(self.url)
         self.assertContains(page, "me@example.com")
         self.assertContains(page, "NABIL")
+        self.assertContains(page, "busy-spinner")  # Save is disabled with a spinner while it sends
 
     def test_saves_settings(self):
         page = self.post()

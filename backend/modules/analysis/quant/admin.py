@@ -175,12 +175,16 @@ class QuantStrategyAdmin(admin.ModelAdmin):
             except ValueError:
                 days = quant.DEFAULT_DAYS
             symbols = [s for s in request.POST.get("symbols", "").replace(",", " ").split() if s]
-            ev = quant.start_evaluation(obj.name, days=max(30, min(days, 3650)), symbols=symbols)
+            try:
+                ev = quant.start_evaluation(obj.name, days=max(30, min(days, 3650)), symbols=symbols)
+            except quant.EvaluationRunning:
+                messages.warning(request, f"{obj.name} is already being evaluated. This page refreshes until the result is in.")
+                return redirect(request.path)
             dispatch(ev.pk)
             messages.info(request, f"Evaluating {obj.name}. This page refreshes until the result is in.")
             return redirect(request.path)
+        running = quant.running_evaluation(obj.name) is not None
         history = list(QuantEvaluation.objects.filter(strategy=obj.name)[:10])
-        running = any(ev.status == QuantEvaluation.Status.RUNNING for ev in history)
         latest = next((ev for ev in history if ev.status == QuantEvaluation.Status.OK), None)
         context = {
             **self.admin_site.each_context(request),

@@ -32,11 +32,11 @@
 {% endif %}
 </p>
 
-<form method="post" class="quant-form">{% csrf_token %}
+<form method="post" class="quant-form"{% if running %} aria-busy="true"{% endif %}>{% csrf_token %}
   <label>Period<br><select name="days">{% for days, label in periods %}<option value="{{ days }}"{% if days == default_days %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
   {% if replayable %}<label>Symbols (blank for all)<br><input type="text" name="symbols" placeholder="NABIL NICA" size="30"></label>{% endif %}
-  <input type="submit" class="default" value="Evaluate accuracy and speed"{% if running %} disabled{% endif %}>
-  {% if running %}<span>Evaluation running…</span>{% endif %}
+  <input type="submit" class="default" value="Evaluate accuracy and speed"{% if running %} disabled title="An evaluation is already running"{% endif %}>
+  {% if running %}<span role="status"><span class="busy-spinner" aria-hidden="true"></span>Evaluation running…</span>{% endif %}
 </form>
 
 {% if latest %}

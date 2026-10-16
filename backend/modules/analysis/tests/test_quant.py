@@ -163,6 +163,33 @@ class QuantAdminTests(TestCase):
         listing = self.client.get("/admin/quant/quantstrategy/").content.decode()
         self.assertIn("100%", listing)
 
+    def test_repeated_clicks_start_one_evaluation(self):
+        self.client.get("/admin/quant/quantstrategy/")
+        url = f"/admin/quant/quantstrategy/{QuantStrategy.objects.get(name='forecast').pk}/change/"
+        with mock.patch("modules.analysis.quant.admin.dispatch") as dispatch:
+            for _ in range(3):
+                self.assertEqual(self.client.post(url, {"days": "90"}).status_code, 302)
+        dispatch.assert_called_once()
+        self.assertEqual(QuantEvaluation.objects.count(), 1)
+        page = self.client.get(url).content.decode()
+        self.assertIn("already being evaluated", page)
+        self.assertIn("Evaluation running", page)
+        self.assertIn('title="An evaluation is already running"', page)
+
+    def test_stale_running_evaluation_does_not_block(self):
+        stuck = quant.start_evaluation("forecast", days=90)
+        with self.assertRaises(quant.EvaluationRunning):
+            quant.start_evaluation("forecast", days=90)
+        QuantEvaluation.objects.filter(pk=stuck.pk).update(started_at=stuck.started_at - timedelta(hours=2))
+        self.assertNotEqual(quant.start_evaluation("forecast", days=90).pk, stuck.pk)
+        stuck.refresh_from_db()
+        self.assertEqual(stuck.status, "failed")
+        quant.start_evaluation("ema_5_8_13", days=90)  # other strategies aren't blocked
+
+    def test_admin_pages_disable_buttons_while_submitting(self):
+        for url in ("/admin/", "/admin/quant/quantstrategy/"):
+            self.assertContains(self.client.get(url), "busy-spinner")
+
     def test_cross_sectional_strategy_uses_live_predictions(self):
         run = AnalysisRun.objects.create(ingestion_run_id=1, timeframe="1D", trading_date=date(2026, 9, 1))
         Prediction.objects.create(run=run, symbol="CLIMB", strategy="pairs", direction="bullish", strength=2,
