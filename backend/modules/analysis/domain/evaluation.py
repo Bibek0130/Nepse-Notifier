@@ -14,6 +14,7 @@ Measures, all computed from settled predictions:
 - speed: wall time, milliseconds per bar for the whole analysis and for the strategy alone,
   and how many sessions calls take to resolve.
 """
+import bisect
 import math
 import random
 import statistics
@@ -88,26 +89,65 @@ def replay_strategy(series_list, name, strategy, start=None, end=None, config=St
             if not analysis:
                 continue
             for signal in analysis.signals:
-                d = draft(signal, closes[i])
-                if d is None:
-                    continue
-                bars = list(zip(series.dates[i + 1 :], series.highs[i + 1 :], series.lows[i + 1 :], closes[i + 1 :]))[: d.horizon]
-                result = score(d.direction, d.entry_price, d.target_price, d.stop_price, d.horizon, bars)
-                if result is None:
-                    replay.open_calls += 1
-                    continue
-                edge = result.return_pct if d.direction == "bullish" else -result.return_pct
-                replay.trades.append(Trade(
-                    series.symbol, series.dates[i], d.direction, d.entry_price, d.target_price, d.stop_price, d.horizon,
-                    result.outcome, result.exit_date, result.exit_price, result.sessions, result.return_pct, round(edge, 3),
-                    result.correct, closes[i + d.horizon] if i + d.horizon < len(closes) else None,
-                ))
+                _settle(replay, series, i, draft(signal, closes[i]))
         # Every-day returns over the horizons this strategy uses: what simply buying would have done.
         for i in _days(series, start, end):
             if i + horizon < len(closes) and closes[i]:
                 replay.baseline[horizon].append((closes[i + horizon] / closes[i] - 1) * 100)
     replay.strategy_seconds += clock[0]
     return replay
+
+
+CROSS_WINDOW = 200  # sessions per stock each replayed day of a cross-sectional strategy sees (they look back 120)
+
+
+def replay_cross_section(series_by_symbol, name, scan, start=None, end=None, window_size=CROSS_WINDOW) -> Replay:
+    """Walk forward over the trading days and settle every call a cross-sectional strategy makes.
+
+    ``scan`` takes {symbol: PriceSeries as of that day} and returns [(symbol, Signal)], like the
+    live run does over every stock that traded that day; only signals named ``name`` count.
+    """
+    horizon = HORIZONS.get(name, DEFAULT_HORIZON)
+    replay = Replay(trades=[], baseline={horizon: []})
+    days = sorted({d for s in series_by_symbol.values() for d in s.dates if (not start or d >= start) and (not end or d <= end)})
+    for day in days:
+        windows, at = {}, {}
+        for symbol, s in series_by_symbol.items():
+            i = bisect.bisect_right(s.dates, day) - 1
+            if i >= 0 and s.dates[i] == day:  # only stocks that traded that day, like a live run
+                windows[symbol], at[symbol] = window(s, i, window_size), i
+        replay.bars += len(windows)
+        t = time.perf_counter()
+        found = [(symbol, signal) for symbol, signal in scan(windows) if signal.strategy == name]
+        spent = time.perf_counter() - t
+        replay.analysis_seconds += spent
+        replay.strategy_seconds += spent
+        for symbol, signal in found:
+            s, i = series_by_symbol[symbol], at[symbol]
+            _settle(replay, s, i, draft(signal, s.closes[i]))
+    for s in series_by_symbol.values():
+        for i, d in enumerate(s.dates):
+            if (not start or d >= start) and (not end or d <= end) and i + horizon < len(s.closes) and s.closes[i]:
+                replay.baseline[horizon].append((s.closes[i + horizon] / s.closes[i] - 1) * 100)
+    return replay
+
+
+def _settle(replay, series, i, d):
+    """Score draft ``d`` made at the close of bar ``i`` against the bars after it, and add it to ``replay``."""
+    if d is None:
+        return
+    closes = series.closes
+    bars = list(zip(series.dates[i + 1 :], series.highs[i + 1 :], series.lows[i + 1 :], closes[i + 1 :]))[: d.horizon]
+    result = score(d.direction, d.entry_price, d.target_price, d.stop_price, d.horizon, bars)
+    if result is None:
+        replay.open_calls += 1
+        return
+    edge = result.return_pct if d.direction == "bullish" else -result.return_pct
+    replay.trades.append(Trade(
+        series.symbol, series.dates[i], d.direction, d.entry_price, d.target_price, d.stop_price, d.horizon,
+        result.outcome, result.exit_date, result.exit_price, result.sessions, result.return_pct, round(edge, 3),
+        result.correct, closes[i + d.horizon] if i + d.horizon < len(closes) else None,
+    ))
 
 
 def _round(v, n=2):
@@ -181,11 +221,15 @@ def monte_carlo(edges, runs=MONTE_CARLO_RUNS, seed=7):
 
 
 def _baseline_rates(baseline):
-    """Share of days the price rose, and the average return, for each horizon."""
+    """Share of days the price rose, and the average return, for each horizon.
+
+    The up rate is smoothed (one imagined up day and one down day), so a short history that only
+    ever rose doesn't make chance a certainty, which would leave no p-value to compute.
+    """
     out = {}
     for h, returns in baseline.items():
         if returns:
-            out[h] = {"up_rate": sum(r > 0 for r in returns) / len(returns), "avg_return": sum(returns) / len(returns),
+            out[h] = {"up_rate": (sum(r > 0 for r in returns) + 1) / (len(returns) + 2), "avg_return": sum(returns) / len(returns),
                       "samples": len(returns)}
     return out
 
@@ -254,7 +298,8 @@ def metrics(replay: Replay, start=None, end=None) -> dict:
             "avg_win_pct": _round(statistics.fmean(wins)) if wins else None,
             "avg_loss_pct": _round(statistics.fmean(losses)) if losses else None,
             "win_loss_ratio": _round(statistics.fmean(wins) / abs(statistics.fmean(losses))) if wins and losses and statistics.fmean(losses) else None,
-            "profit_factor": _round(sum(wins) / abs(sum(losses))) if wins and losses and sum(losses) else None,
+            # None when there were no losing calls (it would be infinite); 0 when there were no winners.
+            "profit_factor": _round(sum(wins) / abs(sum(losses))) if losses and sum(losses) else (0.0 if n and not wins else None),
             "baseline_avg_return_pct": _round(base_avg),
             "edge_vs_baseline_pct": _round(statistics.fmean(t.edge_pct for t in bullish) - base_avg) if bullish and base_avg is not None else None,
             "sharpe": _round(mean / std * math.sqrt(per_year)) if std and per_year else None,
@@ -262,9 +307,9 @@ def metrics(replay: Replay, start=None, end=None) -> dict:
         },
         "risk": {
             "stake_per_trade_pct": round(100 / MAX_OPEN),
-            "total_return_pct": _round((curve[-1] - 1) * 100),
+            "total_return_pct": _round((curve[-1] - 1) * 100) if n else None,
             "cagr_pct": _round((curve[-1] ** (1 / years) - 1) * 100) if years and curve[-1] > 0 else None,
-            "max_drawdown_pct": max_drawdown(curve),
+            "max_drawdown_pct": max_drawdown(curve) if n else None,
             "longest_losing_streak": _streak(edges),
             "monte_carlo": monte_carlo(edges),
         },

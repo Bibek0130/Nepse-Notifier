@@ -154,6 +154,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "modules.analysis.tasks.run_backtest",
         "schedule": crontab(minute=0, hour=3, day_of_week="fri"),  # market closed Friday and Saturday
     },
+    "analysis-weekly-strategy-evaluation": {
+        "task": "modules.analysis.tasks.evaluate_all_strategies",
+        "schedule": crontab(minute=0, hour=4, day_of_week="fri"),  # after the weekly backtest
+    },
     "marketdata-purge-raw": {
         "task": "modules.marketdata.tasks.purge_raw_payloads",
         "schedule": crontab(minute=0, hour=2),

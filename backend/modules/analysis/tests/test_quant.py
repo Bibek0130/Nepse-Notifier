@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, timedelta
 from unittest import mock
 
@@ -9,6 +10,7 @@ from modules.analysis.domain import evaluation as ev
 from modules.analysis.domain import indicators as ind
 from modules.analysis.domain.engine import analyze
 from modules.analysis.domain.entities import Direction, Signal
+from modules.analysis.domain.strategies import DESCRIPTIONS
 from modules.analysis.infrastructure.models import AnalysisRun, Prediction, QuantEvaluation, QuantStrategy
 from modules.analysis.tests.test_backtest import seed
 from modules.analysis.tests.test_strategies import series, signals
@@ -116,6 +118,29 @@ class MetricTests(SimpleTestCase):
     def test_empty(self):
         m = ev.metrics(ev.Replay(trades=[], baseline={}))
         self.assertEqual((m["settled"], m["accuracy"]["hit_rate"], m["risk"]["monte_carlo"]), (0, None, None))
+        self.assertEqual((m["risk"]["max_drawdown_pct"], m["risk"]["total_return_pct"]), (None, None))  # not a flat 0%
+        self.assertEqual(quant.missing_metrics(m), "no calls in this period")
+        m["history"] = {"longest_sessions": 120, "sessions_needed": 241}
+        self.assertEqual(quant.missing_metrics(m), "no calls: needs 241 sessions of history, the longest saved is 120")
+        self.assertEqual(quant.missing_metrics(ev.metrics(ev.Replay(trades=[], open_calls=3, baseline={}))), "3 calls, none settled yet")
+        self.assertEqual(quant.missing_metrics({}), "not measured")
+
+    def test_all_losses_give_a_profit_factor_of_zero(self):
+        m = ev.metrics(ev.Replay(trades=[trade(-3, day=0), trade(-1, day=1), trade(-2, day=2)], baseline={10: [1.0, -1.0]}))
+        self.assertEqual((m["accuracy"]["hit_rate"], m["returns"]["profit_factor"]), (0.0, 0.0))
+        self.assertIsNotNone(m["accuracy"]["p_value"])
+        self.assertEqual(quant.missing_metrics(m), "")
+
+    def test_all_wins_explain_the_missing_profit_factor(self):
+        m = ev.metrics(ev.Replay(trades=[trade(3, day=0), trade(1, day=1)], baseline={10: [1.0, -1.0]}))
+        self.assertEqual((m["accuracy"]["hit_rate"], m["returns"]["profit_factor"]), (100.0, None))
+        self.assertEqual(quant.missing_metrics(m), "no losing calls, so profit factor is unbounded")
+
+    def test_p_value_when_history_only_ever_rose(self):
+        """A baseline that rose every day used to make chance a certainty and the p-value blank."""
+        m = ev.metrics(ev.Replay(trades=[trade(3, day=0), trade(-1, day=1), trade(2, day=2)], baseline={10: [1.0] * 50}))
+        self.assertIsNotNone(m["accuracy"]["p_value"])
+        self.assertLess(m["accuracy"]["chance_hit_rate"], 100.0)
 
     def test_replay_scores_calls_like_live_predictions(self):
         closes = [100 + i for i in range(60)]
@@ -129,6 +154,24 @@ class MetricTests(SimpleTestCase):
         self.assertEqual(replay.open_calls, 10)  # the last 10 days can't settle at a 10-session horizon
         self.assertTrue(all(t.correct for t in replay.trades))
         self.assertGreater(replay.analysis_seconds, 0)
+
+    def test_cross_sectional_replay_trades_a_stretched_pair(self):
+        from modules.analysis.domain import stat_arb
+        from modules.analysis.tests.test_stat_arb import cointegrated_pair
+
+        a, b = cointegrated_pair(n=150, stretch=3.3)
+        a, b = a + [a[-1]] * 20, b + [b[-1]] * 20  # the stretch on bar 150, then 20 quiet bars to settle it
+        pair = {"A": replace(series(a), symbol="A"), "B": replace(series(b), symbol="B")}
+
+        def scan(windows):
+            return stat_arb.scan({s: v.dates for s, v in windows.items()}, {s: v.closes for s, v in windows.items()}, {"g": list(windows)})
+
+        day = pair["A"].dates[149]
+        replay = ev.replay_cross_section(pair, "pairs", scan, start=day, end=day)
+        self.assertEqual(replay.bars, 2)  # both stocks traded that day
+        self.assertEqual(sorted((t.symbol, t.direction) for t in replay.trades), [("A", "bearish"), ("B", "bullish")])
+        self.assertTrue(all(t.made_on == day for t in replay.trades))
+        self.assertEqual(ev.replay_cross_section(pair, "basket_reversion", scan, start=day, end=day).trades, [])
 
 
 class QuantAdminTests(TestCase):
@@ -169,8 +212,95 @@ class QuantAdminTests(TestCase):
                                   made_on=date(2026, 9, 1), entry_price=100, horizon=10, outcome="target",
                                   exit_date=date(2026, 9, 3), exit_price=105, sessions=2, return_pct=5.0, correct=True)
         evaluation = quant.run_evaluation(quant.start_evaluation("pairs", days=90, end=date(2026, 9, 30)).pk)
-        self.assertEqual(evaluation.metrics, {})
+        # One stock has no pair to trade, so the replay makes no calls and the list headlines the live record.
+        self.assertEqual(evaluation.metrics["calls"], 0)
         self.assertEqual((evaluation.live["settled"], evaluation.live["accuracy"]["hit_rate"]), (1, 100.0))
+        self.assertIs(quant.headline(evaluation), evaluation.live)
+        listing = self.client.get("/admin/quant/quantstrategy/").content.decode()
+        self.assertIn("history replay + live", listing)
+
+
+class QuantListReasonTests(TestCase):
+    def setUp(self):
+        self.client.force_login(get_user_model().objects.create_superuser("admin", "a@example.com", "pw"))
+
+    def row(self, page, name):
+        start = page.index(f"<strong>{name}</strong>")
+        return page[start:page.index("</tr>", start)]
+
+    def test_blank_metrics_say_why(self):
+        seed("SHORT", [100 + i * 0.5 for i in range(120)], date(2026, 6, 1))
+        end = date(2026, 9, 28)
+        quant.run_evaluation(quant.start_evaluation("quant_momentum", days=90, end=end).pk)
+        failed = quant.start_evaluation("macd", days=90, end=end)
+        QuantEvaluation.objects.filter(pk=failed.pk).update(status="failed", error="database is locked")
+        quant.start_evaluation("rsi", days=90, end=end)  # still running
+        page = self.client.get("/admin/quant/quantstrategy/").content.decode()
+        self.assertIn("needs 241 sessions of history, the longest saved is 120", self.row(page, "quant_momentum"))
+        self.assertIn("last evaluation failed: database is locked", self.row(page, "macd"))
+        self.assertIn("evaluating…", self.row(page, "rsi"))
+        self.assertIn("not evaluated yet", self.row(page, "trend"))
+        self.assertIn("Evaluate all strategies", page)
+
+    def test_evaluate_all(self):
+        quant.start_evaluation("rsi")  # already running: not started twice
+        with mock.patch("modules.analysis.quant.admin.dispatch_many") as dispatch_many:
+            response = self.client.post("/admin/quant/quantstrategy/evaluate-all/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(dispatch_many.call_args.args[0]), len(DESCRIPTIONS) - 1)
+        self.assertEqual(QuantEvaluation.objects.filter(strategy="rsi").count(), 1)
+
+    def test_stale_only_redoes_evaluations_that_measured_nothing(self):
+        seed("CLIMB", [100 + i * 0.8 for i in range(120)], date(2026, 6, 1))
+        quant.run_evaluation(quant.start_evaluation("forecast", days=365).pk)  # settled calls: fresh
+        quant.run_evaluation(quant.start_evaluation("quant_momentum", days=365).pk)  # too little history: redo
+        names = {ev.strategy for ev in quant.start_all(only_stale_days=7)}
+        self.assertNotIn("forecast", names)
+        self.assertIn("quant_momentum", names)
+        self.assertEqual(len(names), len(DESCRIPTIONS) - 1)
+
+
+class EveryStrategyIsEvaluatedTests(TestCase):
+    """The rule for adding a strategy: it must be measurable. Each one has to make calls on a realistic
+    market, have them settled, and get a hit rate, p-value and profit factor out of its evaluation.
+
+    If this fails for a new strategy, make it replayable in ``application.quant`` (per-symbol strategies
+    go in ``REGISTRY``, cross-sectional ones in ``CROSS_SECTIONAL`` with a scanner) and check that the
+    synthetic market in ``tests/market.py`` gives it the conditions it trades on.
+    """
+
+    def test_every_strategy_produces_hit_rate_p_value_and_profit_factor(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        from modules.marketdata.infrastructure import repositories as market_repo
+        from modules.marketdata.infrastructure.models import Instrument
+
+        from . import market
+
+        data = market.bars()
+        for candles in data.values():
+            market_repo.upsert_candles(candles)
+        for symbol, sector in market.sectors().items():
+            Instrument.objects.filter(symbol=symbol).update(sector=sector)
+        end = data["BNK1"][-1].trading_date
+        with mock.patch.object(quant, "timezone", wraps=quant.timezone) as tz:
+            tz.localdate.return_value = end
+            out = StringIO()
+            call_command("evaluate_strategies", "--days", "730", stdout=out)
+        evaluations = {e.strategy: e for e in QuantEvaluation.objects.all()}
+        self.assertEqual(set(evaluations), set(DESCRIPTIONS))
+        for name, evaluation in evaluations.items():
+            with self.subTest(strategy=name):
+                self.assertEqual(evaluation.status, "ok", evaluation.error)
+                m = evaluation.metrics
+                self.assertGreaterEqual(m["settled"], 3, f"{name} made too few settled calls to measure")
+                self.assertIsNotNone(m["accuracy"]["hit_rate"])
+                self.assertIsNotNone(m["accuracy"]["p_value"])
+                self.assertIsNotNone(m["returns"]["profit_factor"], f"{name}: {quant.missing_metrics(m)}")
+                self.assertEqual(quant.missing_metrics(m), "")
+                self.assertIn(name, out.getvalue())
 
 
 class StrategiesApiTests(TestCase):
