@@ -15,8 +15,13 @@
       {{ digest.market.unchanged }} unchanged
     </div>{% endif %}
   </td></tr>
+  <tr><td style="padding:16px 24px 4px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#6b6b66;">Top {{ digest.top_n }} quant picks</td></tr>
+  <tr><td style="padding:0 24px 4px;font-size:12px;color:#6b6b66;">Buy calls from the quant strategies with risk : reward of 1 : {{ digest.min_risk_reward|floatformat:"-1" }} or better, best first.</td></tr>
+  {% for item in digest.picks %}{% include "notifications/_pick.html" %}{% empty %}
+  <tr><td style="padding:8px 24px 12px;font-size:14px;">No quant strategy call today has risk : reward of 1 : {{ digest.min_risk_reward|floatformat:"-1" }} or better{% if digest.candidates %} ({{ digest.candidates }} call{{ digest.candidates|pluralize }} fell short){% endif %}, so there are no picks this time.</td></tr>
+  {% endfor %}
   {% if digest.watchlist %}
-  <tr><td style="padding:16px 24px 4px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#6b6b66;">Your watchlist</td></tr>
+  <tr><td style="padding:16px 24px 4px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#6b6b66;border-top:1px solid #e3e3de;">Your watchlist</td></tr>
   <tr><td style="padding:0 24px 8px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">
       {% for w in digest.watchlist %}
@@ -24,17 +29,13 @@
         <td style="padding:6px 0;border-top:1px solid #f0f0ec;"><strong>{{ w.symbol }}</strong></td>
         <td style="padding:6px 0;border-top:1px solid #f0f0ec;text-align:right;">{% if w.close is not None %}{{ w.close }}{% else %}<span style="color:#6b6b66;">no price</span>{% endif %}</td>
         <td style="padding:6px 0 6px 12px;border-top:1px solid #f0f0ec;text-align:right;color:{% if w.change_percent > 0 %}#1a7f37{% elif w.change_percent < 0 %}#c62828{% else %}#6b6b66{% endif %};">{% if w.change_percent is not None %}{% if w.change_percent > 0 %}+{% endif %}{{ w.change_percent }}%{% endif %}</td>
-        <td style="padding:6px 0 6px 12px;border-top:1px solid #f0f0ec;text-align:right;color:#6b6b66;font-size:12px;">{% if w.signal_count %}{{ w.signal_count }} signal{{ w.signal_count|pluralize }} below{% else %}no signals{% endif %}</td>
+        <td style="padding:6px 0 6px 12px;border-top:1px solid #f0f0ec;text-align:right;color:#6b6b66;font-size:12px;">{% if w.is_pick %}top pick above{% endif %}</td>
       </tr>
       {% if w.plan %}<tr><td colspan="4" style="padding:0 0 8px;">{% include "notifications/_plan.html" with plan=w.plan %}</td></tr>{% endif %}
       {% endfor %}
     </table>
   </td></tr>
   {% endif %}
-  {% if digest.strong %}{% include "notifications/_section.html" with title="Strong signals" items=digest.strong %}{% endif %}
-  {% if digest.bullish %}{% include "notifications/_section.html" with title="Bullish" items=digest.bullish %}{% endif %}
-  {% if digest.bearish %}{% include "notifications/_section.html" with title="Bearish" items=digest.bearish %}{% endif %}
-  {% if digest.activity %}{% include "notifications/_section.html" with title="Unusual activity" items=digest.activity %}{% endif %}
   {% if digest.track_record %}
   <tr><td style="padding:16px 24px 4px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#6b6b66;border-top:1px solid #e3e3de;">Strategy track record</td></tr>
   <tr><td style="padding:0 24px 4px;font-size:12px;color:#6b6b66;">How past predictions played out since {{ digest.track_record_since }}. Avg return counts a fall as a gain for bearish calls.</td></tr>
@@ -53,7 +54,7 @@
   </td></tr>
   {% endif %}
   <tr><td style="padding:16px 24px 20px;font-size:12px;color:#6b6b66;border-top:1px solid #e3e3de;">
-    These signals and price levels come from standard technical indicators applied automatically. They are not investment advice.<br>
+    These picks and price levels come from quant strategies and standard technical indicators applied automatically. They are not investment advice.<br>
     <a href="{{ preferences_url }}" style="color:#6b6b66;">Change your watchlist or alert settings</a> &middot;
     <a href="{{ unsubscribe_url }}" style="color:#6b6b66;">Unsubscribe</a>
   </td></tr>

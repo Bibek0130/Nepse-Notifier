@@ -1,0 +1,15 @@
+<tr><td style="padding:8px 24px;border-top:1px solid #f0f0ec;">
+  <div style="font-size:15px;">
+    <span style="color:#6b6b66;">{{ forloop.counter }}.</span>
+    <strong>{{ item.symbol }}</strong>
+    {% if item.close %}<span style="color:#1d1d1b;">{{ item.close }}</span>{% endif %}
+    <span style="float:right;font-size:13px;color:#1a7f37;font-weight:600;">1 : {{ item.risk_reward }}</span>
+  </div>
+  <div style="font-size:12px;color:#6b6b66;margin-top:2px;">
+    Picked by {{ item.strategy_labels }}{% if item.rsi is not None %} &middot; RSI {{ item.rsi }}{% endif %}{% if item.support %} &middot; support {{ item.support }}{% endif %}{% if item.resistance %} &middot; resistance {{ item.resistance }}{% endif %}
+  </div>
+  {% include "notifications/_plan.html" with plan=item.plan %}
+  <ul style="margin:6px 0 0;padding-left:18px;font-size:14px;line-height:1.45;">
+    {% for m in item.messages %}<li>{{ m }}</li>{% endfor %}
+  </ul>
+</td></tr>

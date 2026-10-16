@@ -11,6 +11,7 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 import modules.notifications.tasks  # noqa: F401  (registers the subscriber task, as a worker would)
+from modules.analysis import public as analysis
 from modules.analysis.tasks import on_candles_ingested
 from modules.marketdata.domain.entities import Candle, Timeframe
 from modules.marketdata.infrastructure import repositories as market_repo
@@ -46,37 +47,52 @@ class DigestFlowTests(TestCase):
         market_repo.upsert_candles([
             Candle(s, Timeframe.INTRADAY_3H, closing, TODAY, p, p, p, p, 1000, None, None, 20) for s, p in (("SPIKE", Decimal("101")), ("FLAT", Decimal("100")))
         ])
-        self.everyone = Subscriber.objects.create(email="all@example.com", min_strength=1)
-        self.strong_only = Subscriber.objects.create(email="strong@example.com", min_strength=3)
-        self.watchlist = Subscriber.objects.create(email="flat@example.com", min_strength=1, watchlist="flat")
+        self.everyone = Subscriber.objects.create(email="all@example.com")
+        self.watchlist = Subscriber.objects.create(email="flat@example.com", watchlist="flat")
         Subscriber.objects.create(email="gone@example.com", is_active=False)
 
     def run_pipeline(self, timeframe="1D"):
         with mock.patch("celery.current_app.send_task", side_effect=run_events_inline), self.captureOnCommitCallbacks(execute=True):
             on_candles_ingested.delay(1, timeframe, TODAY.isoformat(), ["FLAT", "SPIKE"])
 
-    def test_candles_to_inbox(self):
+    def test_candles_to_inbox_without_quant_picks(self):
         self.run_pipeline()
 
-        # flat@ has no signals but watches FLAT, so gets its price at market close.
+        # SPIKE only has a volume signal, not a quant call: the closing email says there are no picks.
         self.assertEqual(sorted(m.to for m in mail.outbox), [["all@example.com"], ["flat@example.com"]])
+        message = next(m for m in mail.outbox if m.to == ["all@example.com"])
+        self.assertEqual(message.subject, "NEPSE Market close 2026-10-12: no quant pick at 1:2 or better")
+        self.assertIn("TOP 3 QUANT PICKS (risk:reward 1:2 or better)\nNo quant strategy call today", message.body)
+        self.assertNotIn("SPIKE", message.body)
+        self.assertIn("https://nepse.example.com/notifications/unsubscribe/", message.body)
+        self.assertEqual(message.extra_headers["List-Unsubscribe"], f"<https://nepse.example.com/notifications/unsubscribe/{self.everyone.unsubscribe_token}>")
+        self.assertEqual(Delivery.objects.get(subscriber=self.everyone).status, "sent")
         watch_only = next(m for m in mail.outbox if m.to == ["flat@example.com"])
         self.assertIn("YOUR WATCHLIST\nFLAT: 100", watch_only.body)
-        self.assertNotIn("SPIKE", watch_only.body)
-        self.assertIn("Buy zone", watch_only.body)  # watched stocks get trade levels even without signals
+        self.assertIn("Buy zone", watch_only.body)  # watched stocks get trade levels
+
+    def test_candles_to_inbox_with_a_quant_pick(self):
+        real = analysis.get_run_report
+
+        def with_quant_call(run_id):  # stand-in for a quant buy call, which needs 240+ sessions of history
+            report = real(run_id)
+            report["signals"].append({"symbol": "SPIKE", "strategy": "quant_momentum", "direction": "bullish", "strength": 2,
+                                      "message": "Quant momentum: RSI broke above 60", "values": {}})
+            report["analyses"]["SPIKE"]["trade_plan"] = {**report["analyses"]["SPIKE"]["trade_plan"], "risk_reward": 2.5}
+            return report
+
+        with mock.patch.object(analysis, "get_run_report", side_effect=with_quant_call):
+            self.run_pipeline()
         message = next(m for m in mail.outbox if m.to == ["all@example.com"])
-        self.assertTrue(message.subject.startswith("NEPSE Market close 2026-10-12"))
-        self.assertIn("SPIKE", message.body)
+        self.assertEqual(message.subject, "NEPSE Market close 2026-10-12: top pick SPIKE")
+        self.assertIn("1. SPIKE at 101.0, risk:reward 1:2.5, picked by Quant momentum", message.body)
+        self.assertIn("Quant momentum: RSI broke above 60", message.body)
         self.assertIn("Volume 5.0x the 20-day average", message.body)
         self.assertIn("LTP 101", message.body)
-        self.assertIn("Stop loss", message.body)
-        self.assertIn("https://nepse.example.com/notifications/unsubscribe/", message.body)
         html = message.alternatives[0].content
         self.assertIn("<strong>SPIKE</strong>", html)
         self.assertIn("Correction zone", html)
         self.assertIn("Risk : reward", html)
-        self.assertEqual(message.extra_headers["List-Unsubscribe"], f"<https://nepse.example.com/notifications/unsubscribe/{self.everyone.unsubscribe_token}>")
-        self.assertEqual(Delivery.objects.get(subscriber=self.everyone).status, "sent")
 
     def test_rerun_does_not_email_twice(self):
         self.run_pipeline()
@@ -120,4 +136,4 @@ class DigestFlowTests(TestCase):
         mail.outbox.clear()
         call_command("send_test_digest", "me@example.com", stdout=mock.MagicMock())
         self.assertEqual(mail.outbox[0].to, ["me@example.com"])
-        self.assertIn("SPIKE", mail.outbox[0].body)
+        self.assertIn("TOP 3 QUANT PICKS", mail.outbox[0].body)

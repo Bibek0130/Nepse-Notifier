@@ -152,11 +152,17 @@ Re-running a digest never emails anyone twice.
 
 Manage subscribers in Django admin (**Notifications → Subscribers**). Each subscriber has:
 
-* **Min strength:** 1 for every signal, 2 for moderate and strong (the default), 3 for strong only.
-* **Watchlist:** comma-separated symbols. Leave it blank to get all stocks.
+* **Watchlist:** comma-separated symbols whose prices and trade levels are listed under the picks.
 * **Include intraday:** also receive the midday updates, not only the market-close digest.
 
-Subscribers who have no matching signals that run get no email. Every email has a
+Each email carries only the **top 3 quant picks**: stocks that a quant strategy
+(`quant_momentum`, `quant_reversion`, `pca_leaders`) calls a buy and whose trade levels give
+risk : reward of 1:2 or better at today's price. Stocks with a quant sell call (the momentum
+exit) are skipped. Picks are ranked by how many quant strategies agree, then the strongest
+call, then the better risk : reward, and are chosen across the whole market. When fewer than
+3 qualify the email lists only those; when none do, the market-close email says so and midday
+updates are not sent. `TOP_PICKS` and `MIN_RISK_REWARD` in `notifications/domain/digest.py`
+set the limits. Switching a quant strategy off in admin also stops its picks. Every email has a
 one-click unsubscribe link (also in the `List-Unsubscribe` header).
 
 Set `EMAIL_HOST` and related settings in `.env` to send through SMTP (Gmail, SES,
@@ -169,7 +175,7 @@ python manage.py send_test_digest you@example.com
 
 ## Watchlists in email
 
-Every digest links to a settings page (`/notifications/preferences/<token>`) where a subscriber can set their watchlist, which signal strengths they get, and whether they get midday updates, or turn digests back on after unsubscribing. Symbols are checked against the listed stocks. Subscribers with a watchlist get a "Your watchlist" section with each watched stock's price and change. At market close they get it even on days with no signals; midday updates still go out only when there are signals.
+Every digest links to a settings page (`/notifications/preferences/<token>`) where a subscriber can set their watchlist and whether they get midday updates, or turn digests back on after unsubscribing. Symbols are checked against the listed stocks. Subscribers with a watchlist get a "Your watchlist" section with each watched stock's price and change. Midday updates go out only when there are picks.
 
 ## Backtesting
 

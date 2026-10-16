@@ -1,0 +1,4 @@
+{% autoescape off %}{{ forloop.counter }}. {{ item.symbol }}{% if item.close %} at {{ item.close }}{% endif %}, risk:reward 1:{{ item.risk_reward }}, picked by {{ item.strategy_labels }}
+{% include "notifications/_plan.txt" with plan=item.plan %}{% for m in item.messages %}  - {{ m }}
+{% endfor %}
+{% endautoescape %}

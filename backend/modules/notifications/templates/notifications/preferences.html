@@ -34,13 +34,8 @@
     <div class="field">
       <label for="{{ form.watchlist.id_for_label }}">Watchlist</label>
       {{ form.watchlist }}
-      <div class="help">{{ form.watchlist.help_text }} Every digest lists your watched stocks' prices, even on days they have no signals.</div>
+      <div class="help">{{ form.watchlist.help_text }}</div>
       {{ form.watchlist.errors }}
-    </div>
-    <div class="field">
-      <label for="{{ form.min_strength.id_for_label }}">{{ form.min_strength.label }}</label>
-      {{ form.min_strength }}
-      {{ form.min_strength.errors }}
     </div>
     <div class="field check"><label>{{ form.include_intraday }} {{ form.include_intraday.label }}</label></div>
     <div class="field check"><label>{{ form.is_active }} {{ form.is_active.label }}</label></div>

@@ -2,20 +2,12 @@ import re
 
 from django import forms
 
-STRENGTH_CHOICES = [
-    (1, "Everything, including weak signals"),
-    (2, "Moderate and strong signals"),
-    (3, "Strong signals only"),
-]
-
-
 class PreferencesForm(forms.Form):
     watchlist = forms.CharField(
         required=False,
         widget=forms.Textarea(attrs={"rows": 3, "placeholder": "NABIL, NICA, UPPER"}),
-        help_text="Stock symbols separated by commas or spaces. Leave empty to hear about every stock.",
+        help_text="Stock symbols separated by commas or spaces. Your watched stocks' prices are listed in every digest, under the top picks.",
     )
-    min_strength = forms.TypedChoiceField(choices=STRENGTH_CHOICES, coerce=int, label="Which signals to send")
     include_intraday = forms.BooleanField(required=False, label="Also send the midday updates (11:15 and 14:15), not only the market close")
     is_active = forms.BooleanField(required=False, label="Send me digests")
 
