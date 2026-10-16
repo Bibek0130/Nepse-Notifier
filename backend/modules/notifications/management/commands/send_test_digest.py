@@ -15,18 +15,16 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("email")
         parser.add_argument("--run", type=int, help="Analysis run id (default: latest finished run)")
-        parser.add_argument("--min-strength", type=int, default=1, choices=[1, 2, 3])
 
-    def handle(self, *args, email, run, min_strength, **options):
+    def handle(self, *args, email, run, **options):
         run = run or analysis.get_latest_run_id()
         if run is None:
             raise CommandError("No finished analysis run yet. Run ingest_market (and backfill_history) first.")
-        content = build_digest(analysis.get_run_report(run), Preferences(min_strength=min_strength), marketdata.get_market_summary())
-        if content.is_empty:
-            raise CommandError(f"Analysis run {run} has no signals at strength {min_strength} or above.")
+        report = analysis.get_run_report(run)
+        content = build_digest(report, Preferences(), marketdata.get_market_summary(), quant_strategies=analysis.QUANT_STRATEGIES)
         recipient = Subscriber(email=email, unsubscribe_token="test")  # unsaved; only used to render the footer link
         text, html = mailer.render(content, recipient)
         message = EmailMultiAlternatives(subject_line(content), text, settings.DEFAULT_FROM_EMAIL, [email])
         message.attach_alternative(html, "text/html")
         message.send(fail_silently=False)
-        self.stdout.write(f"Sent digest for analysis run {run} ({content.stock_count} stocks) to {email}.")
+        self.stdout.write(f"Sent digest for analysis run {run} ({content.stock_count} top picks) to {email}.")

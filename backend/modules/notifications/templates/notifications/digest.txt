@@ -2,23 +2,18 @@
 Based on intraday prices; the day has not closed yet.{% endif %}
 {% if digest.market.symbols %}
 Market: {{ digest.market.advancers }} up, {{ digest.market.decliners }} down, {{ digest.market.unchanged }} unchanged.
-{% endif %}{% if digest.watchlist %}
+{% endif %}
+TOP {{ digest.top_n }} QUANT PICKS (risk:reward 1:{{ digest.min_risk_reward|floatformat:"-1" }} or better)
+{% for item in digest.picks %}{% include "notifications/_pick.txt" %}{% empty %}No quant strategy call today has risk:reward of 1:{{ digest.min_risk_reward|floatformat:"-1" }} or better{% if digest.candidates %} ({{ digest.candidates }} call{{ digest.candidates|pluralize }} fell short){% endif %}, so there are no picks this time.
+{% endfor %}{% if digest.watchlist %}
 YOUR WATCHLIST
-{% for w in digest.watchlist %}{{ w.symbol }}: {% if w.close is not None %}{{ w.close }}{% else %}no price{% endif %}{% if w.change_percent is not None %} ({% if w.change_percent > 0 %}+{% endif %}{{ w.change_percent }}%){% endif %}{% if w.signal_count %}, {{ w.signal_count }} signal{{ w.signal_count|pluralize }} below{% endif %}
-{% include "notifications/_plan.txt" with plan=w.plan %}{% endfor %}{% endif %}{% if digest.strong %}
-STRONG SIGNALS
-{% for item in digest.strong %}{% include "notifications/_item.txt" %}{% endfor %}{% endif %}{% if digest.bullish %}
-BULLISH
-{% for item in digest.bullish %}{% include "notifications/_item.txt" %}{% endfor %}{% endif %}{% if digest.bearish %}
-BEARISH
-{% for item in digest.bearish %}{% include "notifications/_item.txt" %}{% endfor %}{% endif %}{% if digest.activity %}
-UNUSUAL ACTIVITY
-{% for item in digest.activity %}{% include "notifications/_item.txt" %}{% endfor %}{% endif %}{% if digest.track_record %}
+{% for w in digest.watchlist %}{{ w.symbol }}: {% if w.close is not None %}{{ w.close }}{% else %}no price{% endif %}{% if w.change_percent is not None %} ({% if w.change_percent > 0 %}+{% endif %}{{ w.change_percent }}%){% endif %}{% if w.is_pick %}, a top pick above{% endif %}
+{% include "notifications/_plan.txt" with plan=w.plan %}{% endfor %}{% endif %}{% if digest.track_record %}
 STRATEGY TRACK RECORD (since {{ digest.track_record_since }}; a fall counts as a gain for bearish calls)
 {% for r in digest.track_record %}{{ r.strategy }}: right {{ r.hit_rate }}% of {{ r.settled }}, average return {% if r.avg_return > 0 %}+{% endif %}{{ r.avg_return }}%
 {% endfor %}{% endif %}
 --
-These signals and price levels come from standard technical indicators applied automatically. They are not investment advice.
+These picks and price levels come from quant strategies and standard technical indicators applied automatically. They are not investment advice.
 Change your watchlist or alert settings: {{ preferences_url }}
 Unsubscribe: {{ unsubscribe_url }}
 {% endautoescape %}

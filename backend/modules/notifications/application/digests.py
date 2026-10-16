@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 def preferences_for(subscriber: Subscriber) -> Preferences:
     return Preferences(
-        min_strength=subscriber.min_strength,
         watchlist=subscriber.watchlist_symbols,
         include_intraday=subscriber.include_intraday,
     )
@@ -43,7 +42,7 @@ def prepare_digest(analysis_run_id):
         prefs = preferences_for(subscriber)
         if not wants_run(prefs, digest.provisional):
             continue
-        content = build_digest(report, prefs, market, quotes, scorecard)
+        content = build_digest(report, prefs, market, quotes, scorecard, analysis.QUANT_STRATEGIES)
         if content.is_empty:
             continue
         text, html = mailer.render(content, subscriber)
@@ -96,11 +95,10 @@ def known_symbols():
     return set(marketdata.list_symbols())
 
 
-def update_preferences(subscriber, *, watchlist, min_strength, include_intraday, is_active):
+def update_preferences(subscriber, *, watchlist, include_intraday, is_active):
     """Save a subscriber's own settings from the link in their digest."""
     subscriber.watchlist = ", ".join(sorted(watchlist))
-    subscriber.min_strength = min_strength
     subscriber.include_intraday = include_intraday
     subscriber.is_active = is_active
-    subscriber.save(update_fields=["watchlist", "min_strength", "include_intraday", "is_active"])
+    subscriber.save(update_fields=["watchlist", "include_intraday", "is_active"])
     return subscriber

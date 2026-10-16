@@ -1,24 +1,30 @@
-"""Turn an analysis report into a subscriber's digest. Pure Python."""
+"""Turn an analysis report into a subscriber's digest. Pure Python.
+
+The email carries only the best picks: stocks the quant strategies call a buy whose
+trade levels offer at least ``MIN_RISK_REWARD`` reward per rupee of risk, top ``TOP_PICKS``.
+"""
 from dataclasses import dataclass, field
 
-DIRECTION_ORDER = {"bullish": 0, "bearish": 1, "neutral": 2}
+TOP_PICKS = 3
+MIN_RISK_REWARD = 2.0  # 1:2 or better, from the stock's trade levels at today's price
+STRATEGY_LABELS = {"quant_momentum": "Quant momentum", "quant_reversion": "Quant mean reversion", "pca_leaders": "PCA sector leaders"}
 
 
 @dataclass(frozen=True)
 class Preferences:
-    min_strength: int = 2
-    watchlist: frozenset[str] = frozenset()  # empty means every symbol
+    watchlist: frozenset[str] = frozenset()
     include_intraday: bool = True
 
 
 @dataclass
 class StockItem:
-    """Everything the digest says about one symbol."""
+    """One top pick and why it was picked."""
 
     symbol: str
-    direction: str  # net direction of its signals
+    strategies: list[str]  # the quant strategies calling it a buy
     max_strength: int
-    messages: list[str]
+    messages: list[str]  # quant calls first, then the stock's other signals
+    risk_reward: float
     close: float | None = None
     rsi: float | None = None
     support: float | None = None
@@ -26,15 +32,19 @@ class StockItem:
     projected_close: float | None = None
     plan: dict | None = None  # trade levels: zones, stop, target, risk-to-reward
 
+    @property
+    def strategy_labels(self):
+        return ", ".join(STRATEGY_LABELS.get(name, name) for name in self.strategies)
+
 
 @dataclass
 class WatchItem:
-    """A watched stock's latest price, shown whether or not it has signals."""
+    """A watched stock's latest price, shown whether or not it is a pick."""
 
     symbol: str
     close: float | None = None
     change_percent: float | None = None
-    signal_count: int = 0
+    is_pick: bool = False
     plan: dict | None = None
 
 
@@ -42,42 +52,73 @@ class WatchItem:
 class DigestContent:
     trading_date: str
     provisional: bool
-    strong: list[StockItem] = field(default_factory=list)
-    bullish: list[StockItem] = field(default_factory=list)
-    bearish: list[StockItem] = field(default_factory=list)
-    activity: list[StockItem] = field(default_factory=list)
+    picks: list[StockItem] = field(default_factory=list)
+    candidates: int = 0  # quant buy calls before the risk-reward filter and the top-N cut
     market: dict | None = None
     watchlist: list[WatchItem] = field(default_factory=list)
     track_record: list[dict] = field(default_factory=list)  # per-strategy hit rate of settled predictions
     track_record_since: str | None = None
+    top_n: int = TOP_PICKS
+    min_risk_reward: float = MIN_RISK_REWARD
 
     @property
     def stock_count(self):
-        return len(self.strong) + len(self.bullish) + len(self.bearish) + len(self.activity)
+        return len(self.picks)
 
     @property
     def is_empty(self):
-        """Nothing worth an email. A watchlist alone justifies one only at market close, not midday."""
-        return self.stock_count == 0 and (self.provisional or not self.watchlist)
+        """Midday updates go out only with picks; the market-close email always goes, saying so when nothing qualified."""
+        return self.provisional and not self.picks
 
 
 def wants_run(prefs: Preferences, provisional: bool) -> bool:
     return prefs.include_intraday or not provisional
 
 
-def select_signals(signals, prefs: Preferences):
-    return [
-        s for s in signals
-        if s["strength"] >= prefs.min_strength and (not prefs.watchlist or s["symbol"] in prefs.watchlist)
-    ]
+def select_picks(report: dict, quant_strategies, top_n=TOP_PICKS, min_risk_reward=MIN_RISK_REWARD):
+    """The quant strategies' buy calls with risk:reward of at least ``min_risk_reward``, best first.
+
+    A stock with a quant sell call (e.g. the momentum exit) is skipped. Ranked by how many
+    quant strategies agree, then the strongest call, then risk:reward. Returns (picks, candidates).
+    """
+    quant = set(quant_strategies)
+    by_symbol = {}
+    for s in report["signals"]:
+        by_symbol.setdefault(s["symbol"], []).append(s)
+
+    ranked, candidates = [], 0
+    for symbol, signals in by_symbol.items():
+        calls = [s for s in signals if s["strategy"] in quant]
+        buys = [s for s in calls if s["direction"] == "bullish"]
+        if not buys or any(s["direction"] == "bearish" for s in calls):
+            continue
+        candidates += 1
+        analysis = report["analyses"].get(symbol, {})
+        plan = analysis.get("trade_plan") or report.get("trade_plans", {}).get(symbol)
+        rr = (plan or {}).get("risk_reward")
+        if rr is None or rr < min_risk_reward:
+            continue
+        buys.sort(key=lambda s: -s["strength"])
+        others = sorted((s for s in signals if s["strategy"] not in quant), key=lambda s: -s["strength"])
+        indicators = analysis.get("indicators", {})
+        ranked.append(StockItem(
+            symbol=symbol,
+            strategies=sorted({s["strategy"] for s in buys}),
+            max_strength=buys[0]["strength"],
+            messages=[s["message"] for s in buys + others],
+            risk_reward=rr,
+            close=indicators.get("close"),
+            rsi=round(indicators["rsi14"]) if indicators.get("rsi14") is not None else None,
+            support=analysis.get("support"),
+            resistance=analysis.get("resistance"),
+            projected_close=(analysis.get("forecast") or {}).get("projected_close"),
+            plan=plan,
+        ))
+    ranked.sort(key=lambda i: (-len(i.strategies), -i.max_strength, -i.risk_reward, i.symbol))
+    return ranked[:top_n], candidates
 
 
-def _net_direction(signals):
-    score = sum(1 if s["direction"] == "bullish" else -1 if s["direction"] == "bearish" else 0 for s in signals)
-    return "bullish" if score > 0 else "bearish" if score < 0 else "neutral"
-
-
-def watchlist_items(prefs: Preferences, quotes: list[dict] | None, by_symbol: dict, plans: dict) -> list[WatchItem]:
+def watchlist_items(prefs: Preferences, quotes: list[dict] | None, picked: set, plans: dict) -> list[WatchItem]:
     if not prefs.watchlist or quotes is None:
         return []
     latest = {q["symbol"]: q for q in quotes}
@@ -89,55 +130,27 @@ def watchlist_items(prefs: Preferences, quotes: list[dict] | None, by_symbol: di
             symbol=symbol,
             close=float(close) if close is not None else None,
             change_percent=q.get("change_percent"),
-            signal_count=len(by_symbol.get(symbol, [])),
-            # Stocks with signals show their levels in their own section below.
-            plan=None if symbol in by_symbol else plans.get(symbol),
+            is_pick=symbol in picked,
+            # Picks show their levels in the picks section.
+            plan=None if symbol in picked else plans.get(symbol),
         ))
     return items
 
 
 def build_digest(
-    report: dict, prefs: Preferences, market: dict | None = None, quotes: list[dict] | None = None, scorecard: dict | None = None,
+    report: dict, prefs: Preferences, market: dict | None = None, quotes: list[dict] | None = None,
+    scorecard: dict | None = None, quant_strategies=(),
 ) -> DigestContent:
-    """Group the report's signals by symbol and sort them into digest sections.
+    """The top quant picks for this run, plus the subscriber's watchlist prices and the strategies' track record.
 
-    Symbols with any strength-3 signal go under "strong"; the rest by net direction.
-    With a watchlist and ``quotes``, every watched stock's latest price is listed too.
-    With a ``scorecard``, strategies with settled predictions get a track-record table.
+    Picks are chosen across the whole market; the watchlist only adds its own price section.
     """
-    content = DigestContent(trading_date=report["trading_date"], provisional=report["provisional"], market=market)
-    by_symbol = {}
-    for signal in select_signals(report["signals"], prefs):
-        by_symbol.setdefault(signal["symbol"], []).append(signal)
-
-    for symbol, signals in by_symbol.items():
-        signals.sort(key=lambda s: -s["strength"])
-        analysis = report["analyses"].get(symbol, {})
-        indicators = analysis.get("indicators", {})
-        item = StockItem(
-            symbol=symbol,
-            direction=_net_direction(signals),
-            max_strength=max(s["strength"] for s in signals),
-            messages=[s["message"] for s in signals],
-            close=indicators.get("close"),
-            rsi=round(indicators["rsi14"]) if indicators.get("rsi14") is not None else None,
-            support=analysis.get("support"),
-            resistance=analysis.get("resistance"),
-            projected_close=(analysis.get("forecast") or {}).get("projected_close"),
-            plan=analysis.get("trade_plan"),
-        )
-        if item.max_strength >= 3:
-            content.strong.append(item)
-        elif item.direction == "bullish":
-            content.bullish.append(item)
-        elif item.direction == "bearish":
-            content.bearish.append(item)
-        else:
-            content.activity.append(item)
-
-    for section in (content.strong, content.bullish, content.bearish, content.activity):
-        section.sort(key=lambda i: (-i.max_strength, DIRECTION_ORDER[i.direction], i.symbol))
-    content.watchlist = watchlist_items(prefs, quotes, by_symbol, report.get("trade_plans", {}))
+    picks, candidates = select_picks(report, quant_strategies)
+    content = DigestContent(
+        trading_date=report["trading_date"], provisional=report["provisional"], market=market,
+        picks=picks, candidates=candidates,
+    )
+    content.watchlist = watchlist_items(prefs, quotes, {p.symbol for p in picks}, report.get("trade_plans", {}))
     if scorecard:
         content.track_record = [r for r in scorecard["strategies"] if r["settled"]]
         content.track_record_since = scorecard["since"]
@@ -146,15 +159,8 @@ def build_digest(
 
 def subject_line(content: DigestContent) -> str:
     when = "Midday update" if content.provisional else "Market close"
-    parts = []
-    if content.strong:
-        parts.append(f"{len(content.strong)} strong")
-    if content.bullish:
-        parts.append(f"{len(content.bullish)} bullish")
-    if content.bearish:
-        parts.append(f"{len(content.bearish)} bearish")
-    if content.activity:
-        parts.append(f"{len(content.activity)} unusual activity")
-    if not parts:
-        parts.append("your watchlist")
-    return f"NEPSE {when} {content.trading_date}: " + ", ".join(parts)
+    if content.picks:
+        what = "top pick" + ("s" if len(content.picks) > 1 else "") + " " + ", ".join(p.symbol for p in content.picks)
+    else:
+        what = f"no quant pick at 1:{content.min_risk_reward:g} or better"
+    return f"NEPSE {when} {content.trading_date}: {what}"

@@ -5,8 +5,9 @@ from .infrastructure.models import Delivery, Digest, Subscriber
 
 @admin.register(Subscriber)
 class SubscriberAdmin(admin.ModelAdmin):
-    list_display = ["email", "name", "is_active", "min_strength", "include_intraday", "watchlist", "created_at"]
-    list_filter = ["is_active", "min_strength", "include_intraday"]
+    list_display = ["email", "name", "is_active", "include_intraday", "watchlist", "created_at"]
+    list_filter = ["is_active", "include_intraday"]
+    exclude = ["min_strength"]  # unused since digests carry only the top quant picks
     search_fields = ["email", "name", "watchlist"]
 
 

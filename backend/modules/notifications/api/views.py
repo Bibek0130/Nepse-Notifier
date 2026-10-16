@@ -36,7 +36,6 @@ def preferences(request, token):
 def _initial(subscriber):
     return {
         "watchlist": ", ".join(sorted(subscriber.watchlist_symbols)),
-        "min_strength": subscriber.min_strength,
         "include_intraday": subscriber.include_intraday,
         "is_active": subscriber.is_active,
     }
