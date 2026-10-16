@@ -20,8 +20,12 @@ logger = logging.getLogger(__name__)
 # History has no previous close or turnover, so only structural rules apply.
 HISTORY_RULES = [ohlc_consistent, volume_sane]
 
+# Two years: the quant strategies need a 240-session trend (about a year of NEPSE sessions),
+# and replaying them over the past year needs another year before that.
+DEFAULT_DAYS = 730
 
-def backfill_history(symbols=None, days=365, source=None):
+
+def backfill_history(symbols=None, days=DEFAULT_DAYS, source=None):
     """Load ``days`` of daily bars for ``symbols`` (default: every active instrument).
 
     A symbol that fails is recorded and skipped, so one bad ticker doesn't stop the run.

@@ -211,7 +211,7 @@ cp .env.example .env
 docker compose up --build
 docker compose exec api python manage.py createsuperuser
 docker compose exec api python manage.py ingest_market --force       # first fetch, creates instruments
-docker compose exec api python manage.py backfill_history --days 365 # a year of daily bars
+docker compose exec api python manage.py backfill_history --days 730 # two years of daily bars
 ```
 
 Then open the dashboard at http://localhost:5173, admin at http://localhost:8000/admin/, and the API at http://localhost:8000/api/market/summary.
@@ -226,7 +226,7 @@ Then open the dashboard at http://localhost:5173, admin at http://localhost:8000
 powershell -ExecutionPolicy Bypass -File .\run-local.ps1
 ```
 
-It creates the venv, installs packages, sets up the database, asks for an admin login the first time, fetches prices (and a year of history on the first run), then opens the server and the dashboard in their own windows. Run it again to fetch the latest prices. `-SkipFetch` starts the servers without fetching; `-NoServers` fetches without starting them.
+It creates the venv, installs packages, sets up the database, asks for an admin login the first time, fetches prices (and two years of history while fewer than 250 days are saved), then opens the server and the dashboard in their own windows. Run it again to fetch the latest prices. `-SkipFetch` starts the servers without fetching; `-NoServers` fetches without starting them.
 
 To get digests by email instead of in the window:
 
@@ -246,7 +246,7 @@ pip install -r requirements.txt
 $env:DJANGO_SETTINGS_MODULE = "config.settings.local"   # macOS/Linux: export DJANGO_SETTINGS_MODULE=config.settings.local
 python manage.py migrate
 python manage.py createsuperuser                     # to add subscribers in /admin
-python manage.py backfill_history --days 365         # a year of prices, so the indicators have history
+python manage.py backfill_history --days 730         # two years of prices, so the indicators have history
 python manage.py ingest_market --kind eod --force    # today's prices, then analysis and the digest
 python manage.py runserver                           # admin and API at http://localhost:8000
 ```

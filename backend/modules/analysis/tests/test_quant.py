@@ -187,3 +187,16 @@ class StrategiesApiTests(TestCase):
         self.assertIsNotNone(forecast["admin_id"])
         self.assertIsNone(body["strategies"][0]["evaluation"])
         self.assertEqual(body["strategies"][0]["today"], {"count": 0, "signals": []})
+
+
+class HistoryWindowTests(SimpleTestCase):
+    def test_loaded_history_covers_the_trend_average(self):
+        """Live runs and replays must load enough calendar days for the 240-session trend, or the quant strategies stay silent."""
+        from modules.analysis.application import backtest, series as series_module
+        from modules.analysis.domain.strategies import StrategyConfig
+
+        cfg = StrategyConfig()
+        needed = cfg.quant_trend_period + max(cfg.quant_momentum_cooldown, cfg.quant_reversion_cooldown) + 1
+        for days in (series_module.HISTORY_DAYS, backtest.WARMUP_DAYS):
+            sessions = days * 5 / 7 - 40 * days / 365  # Sun-Thu trading, minus a generous count of holidays
+            self.assertGreaterEqual(sessions, needed, days)

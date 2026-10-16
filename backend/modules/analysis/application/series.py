@@ -5,7 +5,7 @@ from modules.marketdata import public as marketdata
 
 from ..domain.entities import PriceSeries
 
-HISTORY_DAYS = 420  # enough calendar days for a 200-session average
+HISTORY_DAYS = 500  # enough calendar days for the quant strategies' 240-session trend, holidays included
 
 
 def load_series(symbol, trading_date, timeframe):

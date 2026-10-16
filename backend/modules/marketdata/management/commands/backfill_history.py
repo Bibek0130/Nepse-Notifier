@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from modules.marketdata.application.backfill import backfill_history
+from modules.marketdata.application.backfill import DEFAULT_DAYS, backfill_history
 
 
 class Command(BaseCommand):
@@ -8,7 +8,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("symbols", nargs="*", help="Symbols to load (default: all active instruments).")
-        parser.add_argument("--days", type=int, default=365)
+        parser.add_argument("--days", type=int, default=DEFAULT_DAYS)
 
     def handle(self, *args, symbols, days, **options):
         run = backfill_history([s.upper() for s in symbols] or None, days=days)

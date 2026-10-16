@@ -13,7 +13,7 @@ from ..infrastructure.models import BacktestRun
 
 logger = logging.getLogger(__name__)
 
-WARMUP_DAYS = 420  # calendar days of extra history so day one already has a 200-session average
+WARMUP_DAYS = 500  # calendar days of extra history so day one already has the 240-session quant trend
 
 
 def _series(symbol, start, end):
