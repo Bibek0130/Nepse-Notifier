@@ -7,6 +7,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 from modules.marketdata import public as marketdata
+from modules.shared.locks import LockNotAcquired, single_flight
 
 from ..domain import evaluation
 from ..domain.strategies import DESCRIPTIONS, REGISTRY, StrategyConfig
@@ -16,6 +17,25 @@ from .backtest import _series
 logger = logging.getLogger(__name__)
 
 DEFAULT_DAYS = 365
+# The Celery task's time limit: an evaluation still "running" after this died with its worker or thread.
+STALE_AFTER = timedelta(hours=1)
+
+
+class EvaluationRunning(Exception):
+    """This strategy already has an evaluation in progress; ``evaluation`` is that one."""
+
+    def __init__(self, evaluation):
+        super().__init__(f"{evaluation.strategy} is already being evaluated (#{evaluation.pk})")
+        self.evaluation = evaluation
+
+
+def running_evaluation(strategy):
+    """The evaluation in progress for ``strategy``, if any. Ones left behind by a crash are marked failed."""
+    running = QuantEvaluation.objects.filter(strategy=strategy, status=QuantEvaluation.Status.RUNNING)
+    running.filter(started_at__lt=timezone.now() - STALE_AFTER).update(
+        status=QuantEvaluation.Status.FAILED, error="Stopped: did not finish within an hour", finished_at=timezone.now(),
+    )
+    return running.order_by("-started_at").first()
 
 
 def can_replay(strategy):
@@ -24,13 +44,22 @@ def can_replay(strategy):
 
 
 def start_evaluation(strategy, days=DEFAULT_DAYS, symbols=None, end=None):
+    """Create a running evaluation, or raise EvaluationRunning if this strategy already has one."""
     if strategy not in DESCRIPTIONS:
         raise ValueError(f"Unknown strategy {strategy!r}")
     end = end or timezone.localdate()
-    return QuantEvaluation.objects.create(
-        strategy=strategy, start_date=end - timedelta(days=days), end_date=end,
-        symbols=[s.upper() for s in symbols or []], parameters=asdict(StrategyConfig()),
-    )
+    # One evaluation per strategy at a time, so a double click or a second tab can't start the same work twice.
+    try:
+        with single_flight(f"quant-evaluation:{strategy}", timeout=30):
+            if current := running_evaluation(strategy):
+                raise EvaluationRunning(current)
+            return QuantEvaluation.objects.create(
+                strategy=strategy, start_date=end - timedelta(days=days), end_date=end,
+                symbols=[s.upper() for s in symbols or []], parameters=asdict(StrategyConfig()),
+            )
+    except LockNotAcquired:
+        # Another request is creating one this instant.
+        raise EvaluationRunning(running_evaluation(strategy) or QuantEvaluation(strategy=strategy)) from None
 
 
 def run_evaluation(evaluation_id):

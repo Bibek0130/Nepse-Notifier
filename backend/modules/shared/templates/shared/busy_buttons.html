@@ -1,0 +1,67 @@
+{% comment %}
+Busy buttons: once a form is submitted, every button in it is disabled and the clicked one gets a spinner
+until the next page loads, so a second click can't send the form again. Include it in a page's <head>.
+A form opts out with data-no-busy.
+{% endcomment %}
+<style>
+  .busy-spinner { display: inline-block; width: 1em; height: 1em; margin: 0 6px; vertical-align: middle; box-sizing: border-box;
+                  border: 2px solid var(--link-fg, var(--accent, #417690)); border-right-color: transparent; border-radius: 50%;
+                  animation: busy-spin .7s linear infinite; }
+  @media (prefers-reduced-motion: reduce) { .busy-spinner { animation-duration: 2s; } }
+  @keyframes busy-spin { to { transform: rotate(360deg); } }
+  form[aria-busy="true"] :is(button, input[type="submit"], input[type="button"], input[type="reset"]):disabled { cursor: progress; opacity: .6; }
+</style>
+<script>
+(function () {
+  var BUTTONS = 'button, input[type="submit"], input[type="button"], input[type="reset"], input[type="image"]';
+
+  function buttonsOf(form) {
+    return Array.prototype.filter.call(form.elements, function (el) { return el.matches(BUTTONS); });
+  }
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    // Another script (e.g. the admin's "unsaved changes" check) cancelled it, or it opens elsewhere.
+    if (event.defaultPrevented || form.hasAttribute("data-no-busy") || (form.target && form.target !== "_self")) return;
+    if (form.getAttribute("aria-busy") === "true") {
+      event.preventDefault();  // already sending: ignore repeated clicks and Enter presses
+      return;
+    }
+    var buttons = buttonsOf(form);
+    var submitter = event.submitter || buttons.filter(function (b) { return b.type === "submit"; })[0];
+    // A disabled button isn't sent with the form, so carry the clicked one's name and value (e.g. "_continue").
+    if (submitter && submitter.name) {
+      var carry = document.createElement("input");
+      carry.type = "hidden";
+      carry.name = submitter.name;
+      carry.value = submitter.value;
+      carry.setAttribute("data-busy-carry", "");
+      form.appendChild(carry);
+    }
+    form.setAttribute("aria-busy", "true");
+    buttons.forEach(function (b) {
+      if (!b.disabled) { b.disabled = true; b.setAttribute("data-busy-disabled", ""); }
+    });
+    if (submitter) {
+      var spinner = document.createElement("span");
+      spinner.className = "busy-spinner";
+      spinner.setAttribute("role", "status");
+      spinner.setAttribute("aria-label", "Working");
+      spinner.setAttribute("data-busy-spinner", "");
+      submitter.insertAdjacentElement("afterend", spinner);
+    }
+  });
+
+  // Coming back with the browser's Back button can restore the page as it was left: make it usable again.
+  window.addEventListener("pageshow", function (event) {
+    if (!event.persisted) return;
+    document.querySelectorAll('form[aria-busy="true"]').forEach(function (form) {
+      form.removeAttribute("aria-busy");
+      form.querySelectorAll("[data-busy-carry], [data-busy-spinner]").forEach(function (el) { el.remove(); });
+      buttonsOf(form).forEach(function (b) {
+        if (b.hasAttribute("data-busy-disabled")) { b.disabled = false; b.removeAttribute("data-busy-disabled"); }
+      });
+    });
+  });
+})();
+</script>

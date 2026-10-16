@@ -55,7 +55,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],  # project-wide overrides, e.g. admin/base_site.html
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
