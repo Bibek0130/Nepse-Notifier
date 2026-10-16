@@ -25,7 +25,7 @@ def _load_env_file(path):
 _load_env_file(Path(__file__).resolve().parents[2] / ".env")
 
 from .base import *  # noqa: E402,F401,F403
-from .base import BASE_DIR, env_bool  # noqa: E402
+from .base import BASE_DIR, CSRF_TRUSTED_ORIGINS, env_bool  # noqa: E402
 
 DEBUG = env_bool("DJANGO_DEBUG", True)
 
@@ -41,3 +41,8 @@ CELERY_RESULT_BACKEND = "cache+memory://"
 
 # Run event subscribers in-process instead of queueing them for a worker.
 EVENTS_RUN_INLINE = True
+
+# The Vite dashboard (port 5173) proxies /admin to this server, so admin forms posted
+# there carry Origin localhost:5173 while Django sees Host localhost:8000. Trust it here only.
+_VITE_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+CSRF_TRUSTED_ORIGINS = CSRF_TRUSTED_ORIGINS + [o for o in _VITE_ORIGINS if o not in CSRF_TRUSTED_ORIGINS]
