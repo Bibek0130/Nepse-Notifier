@@ -101,16 +101,17 @@ def replay_strategy(series_list, name, strategy, start=None, end=None, config=St
 CROSS_WINDOW = 200  # sessions per stock each replayed day of a cross-sectional strategy sees (they look back 120)
 
 
-def replay_cross_section(series_by_symbol, name, scan, start=None, end=None, window_size=CROSS_WINDOW) -> Replay:
+def replay_cross_section(series_by_symbol, name, scan, start=None, end=None, window_size=CROSS_WINDOW, progress=None) -> Replay:
     """Walk forward over the trading days and settle every call a cross-sectional strategy makes.
 
     ``scan`` takes {symbol: PriceSeries as of that day} and returns [(symbol, Signal)], like the
     live run does over every stock that traded that day; only signals named ``name`` count.
+    ``progress(done, total)`` is called after each day.
     """
     horizon = HORIZONS.get(name, DEFAULT_HORIZON)
     replay = Replay(trades=[], baseline={horizon: []})
     days = sorted({d for s in series_by_symbol.values() for d in s.dates if (not start or d >= start) and (not end or d <= end)})
-    for day in days:
+    for n, day in enumerate(days, 1):
         windows, at = {}, {}
         for symbol, s in series_by_symbol.items():
             i = bisect.bisect_right(s.dates, day) - 1
@@ -125,6 +126,8 @@ def replay_cross_section(series_by_symbol, name, scan, start=None, end=None, win
         for symbol, signal in found:
             s, i = series_by_symbol[symbol], at[symbol]
             _settle(replay, s, i, draft(signal, s.closes[i]))
+        if progress:
+            progress(n, len(days))
     for s in series_by_symbol.values():
         for i, d in enumerate(s.dates):
             if (not start or d >= start) and (not end or d <= end) and i + horizon < len(s.closes) and s.closes[i]:

@@ -161,3 +161,78 @@ class BackfillTests(TestCase):
         self.assertIn("GHOST", run.error)
         self.assertEqual(Candle.objects.filter(timeframe="1D").count(), 1)
         send_task.assert_called_once()
+
+
+class WeekendRunTests(TestCase):
+    setUp, run_ingest = IngestTests.setUp, IngestTests.run_ingest
+
+    def test_forced_run_outside_a_session_is_dated_to_the_last_session(self):
+        """On a Saturday the source still shows Thursday's prices: they are Thursday's bar, not a new Saturday one."""
+        self.run_ingest(FakeSource("primary", [GOOD]), kind="eod", now=SATURDAY, force=True)
+        self.assertEqual(list(Candle.objects.filter(timeframe="1D").values_list("trading_date", flat=True)), [date(2026, 10, 15)])
+
+    def test_forced_run_before_the_open_is_dated_to_the_previous_session(self):
+        sunday_0930 = datetime(2026, 10, 18, 9, 30, tzinfo=NPT)
+        run = self.run_ingest(FakeSource("primary", [GOOD]), kind="eod", now=sunday_0930, force=True)
+        self.assertEqual(run.trading_date, date(2026, 10, 15))
+
+    def test_forced_run_during_a_session_keeps_today(self):
+        run = self.run_ingest(FakeSource("primary", [GOOD]), kind="eod", force=True)
+        self.assertEqual(run.trading_date, date(2026, 10, 12))
+
+
+class HistoryCheckTests(TestCase):
+    def seed(self, symbol, sessions, first):
+        from datetime import timedelta
+
+        bars = [HistoricalBar(first + timedelta(days=i), Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100"), 10)
+                for i in range(sessions)]
+        with mock.patch("celery.current_app.send_task"), self.captureOnCommitCallbacks(execute=True):
+            backfill_history([symbol], days=10_000, source=FakeHistory({symbol: bars}))
+
+    def command(self, *args):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        out = StringIO()
+        with mock.patch("modules.marketdata.management.commands.backfill_history.backfill_history") as backfill:
+            backfill.return_value = IngestionRun(status="ok")
+            call_command("backfill_history", *args, stdout=out)
+        return backfill.called, out.getvalue()
+
+    @mock.patch("django.utils.timezone.localdate", return_value=date(2026, 10, 17))
+    def test_one_year_of_history_is_short(self, _):
+        """bibek's laptop: a 365-day download saved about 237 sessions, too few for the 240-session trend."""
+        from modules.marketdata.application.backfill import history_is_short, history_status
+
+        self.seed("NABIL", 237, date(2025, 10, 17))
+        self.assertEqual(history_status(730)[0], 237)
+        self.assertTrue(history_is_short(250, days=730))
+        called, out = self.command("--days", "730", "--if-shorter-than", "250")
+        self.assertTrue(called)
+        self.assertIn("Only 237 sessions saved", out)
+
+    @mock.patch("django.utils.timezone.localdate", return_value=date(2026, 10, 17))
+    def test_enough_sessions_skips_the_download(self, _):
+        self.seed("NABIL", 300, date(2025, 10, 17))
+        called, out = self.command("--days", "730", "--if-shorter-than", "250")
+        self.assertFalse(called)
+        self.assertIn("History is long enough: up to 300 sessions", out)
+
+    @mock.patch("django.utils.timezone.localdate", return_value=date(2026, 10, 17))
+    def test_history_reaching_back_the_whole_window_is_not_downloaded_again(self, _):
+        """A market where no stock has 250 sessions (young listings) must not download it all on every run."""
+        from modules.marketdata.application.backfill import history_is_short
+
+        self.seed("NEWCO", 5, date(2024, 10, 20))  # oldest saved bar is two years back
+        self.assertFalse(history_is_short(250, days=730))
+
+    def test_empty_database_downloads(self):
+        from modules.marketdata.application.backfill import history_is_short
+
+        self.assertTrue(history_is_short(250))
+
+    def test_without_the_flag_it_always_downloads(self):
+        self.seed("NABIL", 300, date(2025, 10, 17))
+        self.assertTrue(self.command("--days", "30")[0])
