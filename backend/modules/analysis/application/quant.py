@@ -114,7 +114,7 @@ def run_evaluation(evaluation_id, progress=None):
         ev.metrics["history"] = {"longest_sessions": longest, "sessions_needed": sessions_needed(ev.strategy)}
         ev.trades = evaluation.trade_rows(replay)
         ev.symbols_tested = tested
-        ev.live = live_record(ev.strategy, ev.start_date, ev.end_date)
+        ev.live = live_record(ev.strategy, ev.start_date, ev.end_date, replay.universe or loaded)
         ev.status = QuantEvaluation.Status.OK
     except Exception as exc:
         logger.exception("Quant evaluation %s failed", ev.pk)
@@ -163,6 +163,8 @@ def missing_metrics(metrics):
         return "not measured"
     history = metrics.get("history") or {}
     if not metrics.get("calls"):
+        if (metrics.get("exit_warnings") or {}).get("calls"):
+            return "only sell calls (exit warnings) in this period; NEPSE can't be sold short"
         need, have = history.get("sessions_needed"), history.get("longest_sessions")
         if need and have is not None and have < need:
             return f"no calls: needs {need} sessions of history, the longest saved is {have}"
@@ -172,23 +174,34 @@ def missing_metrics(metrics):
     if metrics["returns"]["profit_factor"] is None:
         return "no losing calls, so profit factor is unbounded"
     if metrics["accuracy"]["p_value"] is None:
-        return "too few calls for a p-value"
+        return "no random buys to compare with, so no p-value"
     return ""
 
 
-def live_record(strategy, start, end):
-    """The same measures over the predictions the live pipeline actually stored and settled."""
+def live_record(strategy, start, end, universe=None):
+    """The same measures over the predictions the live pipeline actually stored and settled.
+
+    Live buys were entered at the signal close (the next open isn't known when they're stored);
+    sell calls count as exit warnings. ``universe`` ({symbol: PriceSeries}) is what random buys
+    for the significance test are drawn from.
+    """
     rows = Prediction.objects.filter(strategy=strategy, made_on__gte=start, made_on__lte=end)
-    replay = evaluation.Replay(trades=[], baseline={})
+    replay = evaluation.Replay(trades=[], baseline={}, universe=universe or {})
     for p in rows:
+        bullish = p.direction == "bullish"
         if not p.outcome:
-            replay.open_calls += 1
+            if bullish:
+                replay.open_calls += 1
+            else:
+                replay.open_exits += 1
             continue
         ret = p.return_pct or 0.0
+        if not bullish:
+            replay.exits.append(ret)
+            continue
         replay.trades.append(evaluation.Trade(
             p.symbol, p.made_on, p.direction, float(p.entry_price), _f(p.target_price), _f(p.stop_price), p.horizon,
-            p.outcome, p.exit_date, float(p.exit_price), p.sessions or 0, ret,
-            ret if p.direction == "bullish" else -ret, bool(p.correct), None,
+            p.outcome, p.exit_date, float(p.exit_price), p.sessions or 0, ret, ret, bool(p.correct), None,
         ))
     result = evaluation.metrics(replay, start, end)
     runs = list(AnalysisRun.objects.filter(status=AnalysisRun.Status.OK, finished_at__isnull=False).order_by("-finished_at")[:20])

@@ -6,13 +6,14 @@ import { DirectionBadge, STRATEGY_LABELS } from "../signals/SignalsTable.jsx";
 const num = (v, suffix = "", signed = false) =>
   v == null ? "–" : `${signed && v > 0 ? "+" : ""}${v}${suffix}`;
 
-// How much to trust a hit rate: a significant edge over chance, or not yet.
+// How much to trust a strategy: does its average return after costs beat random buys on the same days?
 function verdict(e) {
   if (!e) return null;
   if (e.settled < 20) return { tone: "muted", text: "Too few calls to judge" };
-  if (e.p_value != null && e.p_value < 0.05 && e.hit_rate > e.chance_hit_rate) return { tone: "up", text: "Beats chance" };
-  if (e.p_value != null && e.p_value < 0.05) return { tone: "down", text: "Worse than chance" };
-  return { tone: "muted", text: "Not distinguishable from chance" };
+  const better = e.random_avg_return_pct != null ? e.avg_return_pct > e.random_avg_return_pct : e.hit_rate > e.chance_hit_rate;
+  if (e.p_value != null && e.p_value < 0.05 && better) return { tone: "up", text: "Beats random buys" };
+  if (e.p_value != null && e.p_value < 0.05) return { tone: "down", text: "Worse than random buys" };
+  return { tone: "muted", text: "No better than random buys" };
 }
 
 function Metrics({ e, title }) {
@@ -25,9 +26,9 @@ function Metrics({ e, title }) {
         {v && <span className={`small ${v.tone}`}>{v.text}</span>}
       </div>
       <dl className="facts">
-        <div className="fact"><dt>Hit rate</dt><dd>{num(e.hit_rate, "%")} <span className="muted small">vs {num(e.chance_hit_rate, "%")} chance</span></dd></div>
+        <div className="fact"><dt>Hit rate</dt><dd>{num(e.hit_rate, "%")} <span className="muted small">vs {num(e.chance_hit_rate, "%")} random</span></dd></div>
         <div className="fact"><dt>Calls settled</dt><dd>{e.settled}</dd></div>
-        <div className="fact"><dt>Avg return per call</dt><dd>{num(e.avg_return_pct, "%", true)}</dd></div>
+        <div className="fact"><dt>Avg return per buy, after costs</dt><dd>{num(e.avg_return_pct, "%", true)}</dd></div>
         <div className="fact"><dt>Profit factor</dt><dd>{num(e.profit_factor)}</dd></div>
         <div className="fact"><dt>Max drawdown</dt><dd>{num(e.max_drawdown_pct, "%")}</dd></div>
         {e.mae_pct != null && <div className="fact"><dt>Target error (MAE)</dt><dd>{num(e.mae_pct, "%")}</dd></div>}

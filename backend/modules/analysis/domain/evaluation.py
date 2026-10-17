@@ -1,12 +1,23 @@
 """Evaluate one strategy: replay it over history, score every call against what prices did, and time it.
 
-The replay is walk-forward (each day sees only bars up to that day) and every signal is
-turned into a prediction and settled exactly like the live pipeline does (``predictions``),
-so the replayed accuracy is comparable with the live track record. Pure Python.
+The replay is walk-forward (each day sees only bars up to that day) and scores calls the way a
+NEPSE investor could actually trade them. Pure Python.
 
-Measures, all computed from settled predictions:
-- accuracy: hit rate (price moved the predicted way), with a 95% confidence interval and a
-  significance test against what buying on any day would have achieved (the baseline);
+- Buy calls are long trades. NEPSE has no short selling, so sell (bearish) calls are not trades:
+  they are scored separately as exit warnings (did the price fall over the horizon?).
+- The digest goes out after the close, so a buy is entered at the next session's open. The
+  call's stop and target keep the same distance from the entry as from the signal close, and a
+  session that opens beyond the stop or target exits at that open.
+- Every trade pays NEPSE costs (broker commission and SEBON fee both ways, the DP charge, and
+  capital gains tax on a profit), so returns are what an investor keeps.
+- Significance: the strategy's average return is compared with random buys of other stocks on
+  the same days, settled by the same rules (a permutation test). Calls on the same day move
+  together with the market, and a stop/target changes the odds of a "hit", so comparing a hit
+  rate with how often prices rise would be misleading.
+
+Measures, all computed from settled buy trades:
+- accuracy: hit rate (made money after costs), with a 95% confidence interval, the hit rate of
+  random buys, and the p-value of the permutation test;
 - forecast vs actual: where a strategy names a target price, the error between that target
   and the close at the horizon (MAE, RMSE, bias), plus how often the target was reached;
 - trade quality: average return, win/loss sizes, profit factor, expectancy, Sharpe, Sortino;
@@ -19,16 +30,41 @@ import math
 import random
 import statistics
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 from .backtest import _days, window
 from .engine import analyze
-from .predictions import DEFAULT_HORIZON, HORIZONS, draft, score
+from .predictions import DEFAULT_HORIZON, HORIZONS, draft
 from .strategies import StrategyConfig
 
 MAX_OPEN = 4  # equity curve stakes 1/4 of capital per trade, like the paper's four-trade limit
 MONTE_CARLO_RUNS = 1000
+RANDOM_RUNS = 200  # sets of random buys the strategy's average return is compared with
 TRADING_DAYS = 240  # NEPSE sessions in a year, roughly
+
+
+@dataclass(frozen=True)
+class Costs:
+    """What a round trip costs on NEPSE, as fractions of the trade value (SEBON/broker schedule)."""
+
+    commission: float = 0.0037  # broker commission each way, the NPR 50k-500k slab
+    sebon_fee: float = 0.00015  # each way
+    dp_charge: float = 25  # NPR per sale
+    trade_value: float = 100_000  # NPR per trade, to turn the DP charge into a fraction
+    capital_gains_tax: float = 0.075  # on a profit from shares held under a year
+
+    def net_return_pct(self, gross_pct):
+        """What an investor keeps, in percent of what they paid, from a ``gross_pct`` price move."""
+        each_way = self.commission + self.sebon_fee
+        paid = 1 + each_way
+        received = (1 + gross_pct / 100) * (1 - each_way) - self.dp_charge / self.trade_value
+        profit = received - paid
+        if profit > 0:
+            profit *= 1 - self.capital_gains_tax
+        return profit / paid * 100
+
+
+COSTS = Costs()
 
 
 @dataclass(frozen=True)
@@ -45,19 +81,23 @@ class Trade:
     exit_price: float
     sessions: int
     return_pct: float  # raw price change
-    edge_pct: float  # return in the predicted direction
-    correct: bool
+    edge_pct: float  # return in the predicted direction, before costs
+    correct: bool  # price moved the predicted way
     close_at_horizon: float | None  # the actual close ``horizon`` sessions later, when known
+    signal_close: float | None = None  # the close the call was made at (a replayed buy enters at the next open)
 
 
 @dataclass
 class Replay:
-    trades: list
-    open_calls: int = 0  # signals too recent to settle
+    trades: list  # settled buy trades
+    open_calls: int = 0  # buy calls too recent to settle
     bars: int = 0  # symbol-days evaluated
     analysis_seconds: float = 0.0
     strategy_seconds: float = 0.0
     baseline: dict = None  # horizon -> list of every-day returns, for comparison
+    exits: list = field(default_factory=list)  # sell calls: price change over the horizon, in percent
+    open_exits: int = 0  # sell calls too recent to settle
+    universe: dict = field(default_factory=dict)  # symbol -> PriceSeries, for the random buys
 
 
 def _timed(fn, clock):
@@ -81,6 +121,7 @@ def replay_strategy(series_list, name, strategy, start=None, end=None, config=St
     timed = _timed(strategy, clock)
     for series in series_list:
         closes = series.closes
+        replay.universe[series.symbol] = series
         for i in _days(series, start, end):
             replay.bars += 1
             t = time.perf_counter()
@@ -109,7 +150,7 @@ def replay_cross_section(series_by_symbol, name, scan, start=None, end=None, win
     ``progress(done, total)`` is called after each day.
     """
     horizon = HORIZONS.get(name, DEFAULT_HORIZON)
-    replay = Replay(trades=[], baseline={horizon: []})
+    replay = Replay(trades=[], baseline={horizon: []}, universe=dict(series_by_symbol))
     days = sorted({d for s in series_by_symbol.values() for d in s.dates if (not start or d >= start) and (not end or d <= end)})
     for n, day in enumerate(days, 1):
         windows, at = {}, {}
@@ -140,17 +181,92 @@ def _settle(replay, series, i, d):
     if d is None:
         return
     closes = series.closes
-    bars = list(zip(series.dates[i + 1 :], series.highs[i + 1 :], series.lows[i + 1 :], closes[i + 1 :]))[: d.horizon]
-    result = score(d.direction, d.entry_price, d.target_price, d.stop_price, d.horizon, bars)
+    if d.direction != "bullish":
+        # NEPSE can't be sold short: a sell call is an exit warning, scored by whether the price fell.
+        if i + d.horizon < len(closes) and closes[i]:
+            replay.exits.append((closes[i + d.horizon] / closes[i] - 1) * 100)
+        else:
+            replay.open_exits += 1
+        return
+    stop_pct = d.stop_price / d.entry_price - 1 if d.stop_price else None
+    target_pct = d.target_price / d.entry_price - 1 if d.target_price else None
+    result = simulate_long(series, i, stop_pct, target_pct, d.horizon)
     if result is None:
         replay.open_calls += 1
         return
-    edge = result.return_pct if d.direction == "bullish" else -result.return_pct
+    outcome, j, exit_price, entry, stop, target = result
+    change = round((exit_price / entry - 1) * 100, 3)
     replay.trades.append(Trade(
-        series.symbol, series.dates[i], d.direction, d.entry_price, d.target_price, d.stop_price, d.horizon,
-        result.outcome, result.exit_date, result.exit_price, result.sessions, result.return_pct, round(edge, 3),
-        result.correct, closes[i + d.horizon] if i + d.horizon < len(closes) else None,
+        series.symbol, series.dates[i], d.direction, round(entry, 2), _round(target), _round(stop), d.horizon,
+        outcome, series.dates[j], round(exit_price, 2), j - i, change, change, change > 0,
+        closes[i + d.horizon] if i + d.horizon < len(closes) else None, closes[i],
     ))
+
+
+def simulate_long(series, i, stop_pct, target_pct, horizon):
+    """Buy at the open after bar ``i`` and hold up to ``horizon`` sessions, with a stop and target
+    ``stop_pct`` / ``target_pct`` (fractions, or None) away from the entry.
+
+    Returns (outcome, exit bar, exit price, entry, stop, target), or None until enough bars exist.
+    A session that opens beyond the stop or target exits at its open; when one session's range
+    touches both, the stop counts (we can't tell which came first).
+    """
+    first = i + 1
+    if first + horizon > len(series.closes):
+        return None
+    entry = series.opens[first] or series.closes[i]
+    stop = entry * (1 + stop_pct) if stop_pct is not None else None
+    target = entry * (1 + target_pct) if target_pct is not None else None
+    for j in range(first, first + horizon):
+        if j > first:  # the entry session opens at the entry price
+            o = series.opens[j]
+            if o and stop is not None and o <= stop:
+                return "stop", j, o, entry, stop, target
+            if o and target is not None and o >= target:
+                return "target", j, o, entry, stop, target
+        if stop is not None and series.lows[j] <= stop:
+            return "stop", j, stop, entry, stop, target
+        if target is not None and series.highs[j] >= target:
+            return "target", j, target, entry, stop, target
+    j = first + horizon - 1
+    return "horizon", j, series.closes[j], entry, stop, target
+
+
+def random_buys(trades, universe, runs=RANDOM_RUNS, costs=COSTS, seed=11):
+    """The strategy's buys redone ``runs`` times with a random stock bought on each call's day, under
+    the same stop, target and horizon rules. Returns (average net returns, one per run; hit rate of
+    all random buys), or None when there is nothing to compare with."""
+    if not trades or not universe:
+        return None
+    by_day = {}
+    for symbol, s in universe.items():
+        for i, d in enumerate(s.dates):
+            by_day.setdefault(d, []).append((s, i))
+    plans = []
+    for t in trades:
+        stop_pct = t.stop / t.entry - 1 if t.stop else None
+        target_pct = t.target / t.entry - 1 if t.target else None
+        if by_day.get(t.made_on):
+            plans.append((by_day[t.made_on], stop_pct, target_pct, t.horizon))
+    if not plans:
+        return None
+    rng, means, wins, total = random.Random(seed), [], 0, 0
+    for _ in range(runs):
+        nets = []
+        for choices, stop_pct, target_pct, horizon in plans:
+            for _attempt in range(5):  # a stock too close to the end of its history can't settle; try another
+                s, i = rng.choice(choices)
+                result = simulate_long(s, i, stop_pct, target_pct, horizon)
+                if result:
+                    _, _, exit_price, entry, _, _ = result
+                    net = costs.net_return_pct((exit_price / entry - 1) * 100)
+                    nets.append(net)
+                    wins += net > 0
+                    total += 1
+                    break
+        if nets:
+            means.append(statistics.fmean(nets))
+    return (means, wins / total * 100) if means else None
 
 
 def _round(v, n=2):
@@ -171,17 +287,14 @@ def wilson_interval(hits, n, z=1.96):
     return round((centre - spread) * 100, 1), round((centre + spread) * 100, 1)
 
 
-def p_value(hits, expected_rates):
-    """Two-sided p-value that the hit count differs from chance, where chance is a per-call probability."""
-    n = len(expected_rates)
-    if not n:
+def permutation_p_value(actual, random_means):
+    """Two-sided p-value that an average return of ``actual`` came from the same luck as ``random_means``."""
+    if not random_means:
         return None
-    mean = sum(expected_rates)
-    var = sum(p * (1 - p) for p in expected_rates)
-    if var == 0:
-        return None
-    z = (hits - mean) / math.sqrt(var)
-    return round(math.erfc(abs(z) / math.sqrt(2)), 4)
+    n = len(random_means)
+    above = sum(m >= actual for m in random_means)
+    below = sum(m <= actual for m in random_means)
+    return round(min(1.0, 2 * (min(above, below) + 1) / (n + 1)), 4)
 
 
 def max_drawdown(equity):
@@ -237,19 +350,15 @@ def _baseline_rates(baseline):
     return out
 
 
-def metrics(replay: Replay, start=None, end=None) -> dict:
+def metrics(replay: Replay, start=None, end=None, costs=COSTS, random_runs=RANDOM_RUNS) -> dict:
     trades = sorted(replay.trades, key=lambda t: (t.exit_date, t.symbol))
     n = len(trades)
-    edges = [t.edge_pct for t in trades]
-    hits = sum(t.correct for t in trades)
+    gross = [t.edge_pct for t in trades]
+    edges = [costs.net_return_pct(e) for e in gross]  # what an investor keeps
+    hits = sum(e > 0 for e in edges)
     wins = [e for e in edges if e > 0]
     losses = [e for e in edges if e <= 0]
     base = _baseline_rates(replay.baseline or {})
-
-    def chance(t):
-        b = base.get(t.horizon)
-        up = b["up_rate"] if b else 0.5
-        return up if t.direction == "bullish" else 1 - up
 
     low, high = wilson_interval(hits, n)
     mean = statistics.fmean(edges) if edges else None
@@ -257,6 +366,10 @@ def metrics(replay: Replay, start=None, end=None) -> dict:
     downside = math.sqrt(sum(min(e, 0) ** 2 for e in edges) / n) if n else None
     avg_sessions = statistics.fmean(t.sessions for t in trades) if trades else None
     per_year = TRADING_DAYS / avg_sessions if avg_sessions else None
+
+    randoms = random_buys(trades, replay.universe, random_runs, costs)
+    random_means, random_hit_rate = randoms or (None, None)
+    random_avg = statistics.fmean(random_means) if random_means else None
 
     forecasts = [(t.target, t.close_at_horizon) for t in trades if t.target and t.close_at_horizon]
     errors = [(actual - target) / target * 100 for target, actual in forecasts]
@@ -266,23 +379,26 @@ def metrics(replay: Replay, start=None, end=None) -> dict:
     years = None
     if trades and start and end:
         years = max((end - start).days / 365.25, 1 / 365.25)
-    bullish = [t for t in trades if t.direction == "bullish"]
     base_avg = None
-    if bullish:
-        weights = [base[t.horizon]["avg_return"] for t in bullish if t.horizon in base]
+    if trades:
+        weights = [base[t.horizon]["avg_return"] for t in trades if t.horizon in base]
         base_avg = statistics.fmean(weights) if weights else None
+    exits = replay.exits
+    fell_base = [1 - base[h]["up_rate"] for h in base]
 
     return {
         "calls": n + replay.open_calls,
         "settled": n,
         "open": replay.open_calls,
-        "bullish": len(bullish),
-        "bearish": n - len(bullish),
+        "bullish": n,
+        "bearish": len(exits),
+        "costs": {**asdict(costs), "round_trip_pct": _round(-costs.net_return_pct(0), 3)},
         "accuracy": {
             "hit_rate": _pct(hits, n),
             "hit_rate_ci95": [low, high],
-            "chance_hit_rate": _pct(sum(chance(t) for t in trades), n),
-            "p_value": p_value(hits, [chance(t) for t in trades]),
+            "chance_hit_rate": _round(random_hit_rate, 1),
+            "p_value": permutation_p_value(mean, random_means) if mean is not None else None,
+            "random_runs": len(random_means or []),
             "targets_hit_pct": _pct(sum(t.outcome == "target" for t in trades), n),
             "stops_hit_pct": _pct(sum(t.outcome == "stop" for t in trades), n),
             "expired_pct": _pct(sum(t.outcome == "horizon" for t in trades), n),
@@ -297,16 +413,26 @@ def metrics(replay: Replay, start=None, end=None) -> dict:
         },
         "returns": {
             "avg_return_pct": _round(mean),
+            "avg_gross_return_pct": _round(statistics.fmean(gross)) if gross else None,
             "median_return_pct": _round(statistics.median(edges)) if edges else None,
             "avg_win_pct": _round(statistics.fmean(wins)) if wins else None,
             "avg_loss_pct": _round(statistics.fmean(losses)) if losses else None,
             "win_loss_ratio": _round(statistics.fmean(wins) / abs(statistics.fmean(losses))) if wins and losses and statistics.fmean(losses) else None,
             # None when there were no losing calls (it would be infinite); 0 when there were no winners.
             "profit_factor": _round(sum(wins) / abs(sum(losses))) if losses and sum(losses) else (0.0 if n and not wins else None),
+            "gross_profit_factor": _profit_factor(gross),
+            "random_avg_return_pct": _round(random_avg),
+            "edge_vs_random_pct": _round(mean - random_avg) if mean is not None and random_avg is not None else None,
             "baseline_avg_return_pct": _round(base_avg),
-            "edge_vs_baseline_pct": _round(statistics.fmean(t.edge_pct for t in bullish) - base_avg) if bullish and base_avg is not None else None,
             "sharpe": _round(mean / std * math.sqrt(per_year)) if std and per_year else None,
             "sortino": _round(mean / downside * math.sqrt(per_year)) if downside and per_year else None,
+        },
+        "exit_warnings": {
+            "calls": len(exits) + replay.open_exits,
+            "settled": len(exits),
+            "fell_pct": _pct(sum(e < 0 for e in exits), len(exits)),
+            "chance_fell_pct": _round(statistics.fmean(fell_base) * 100, 1) if fell_base else None,
+            "avg_move_pct": _round(statistics.fmean(exits)) if exits else None,
         },
         "risk": {
             "stake_per_trade_pct": round(100 / MAX_OPEN),
@@ -327,6 +453,11 @@ def metrics(replay: Replay, start=None, end=None) -> dict:
     }
 
 
+def _profit_factor(edges):
+    wins, losses = sum(e for e in edges if e > 0), -sum(e for e in edges if e <= 0)
+    return _round(wins / losses) if losses else (0.0 if edges and not wins else None)
+
+
 def _streak(edges):
     best = run = 0
     for e in edges:
@@ -335,7 +466,8 @@ def _streak(edges):
     return best
 
 
-def trade_rows(replay: Replay, limit=50):
-    """The most recent settled calls, for a sample table."""
+def trade_rows(replay: Replay, limit=50, costs=COSTS):
+    """The most recent settled buy trades, for a sample table."""
     rows = sorted(replay.trades, key=lambda t: t.made_on, reverse=True)[:limit]
-    return [{**asdict(t), "made_on": t.made_on.isoformat(), "exit_date": t.exit_date.isoformat()} for t in rows]
+    return [{**asdict(t), "made_on": t.made_on.isoformat(), "exit_date": t.exit_date.isoformat(),
+             "net_pct": _round(costs.net_return_pct(t.edge_pct))} for t in rows]

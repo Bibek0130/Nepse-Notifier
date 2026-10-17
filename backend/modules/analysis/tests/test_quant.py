@@ -1,3 +1,4 @@
+import random
 from dataclasses import replace
 from datetime import date, timedelta
 from unittest import mock
@@ -9,7 +10,7 @@ from modules.analysis.application import quant
 from modules.analysis.domain import evaluation as ev
 from modules.analysis.domain import indicators as ind
 from modules.analysis.domain.engine import analyze
-from modules.analysis.domain.entities import Direction, Signal
+from modules.analysis.domain.entities import Direction, PriceSeries, Signal
 from modules.analysis.domain.strategies import DESCRIPTIONS
 from modules.analysis.infrastructure.models import AnalysisRun, Prediction, QuantEvaluation, QuantStrategy
 from modules.analysis.tests.test_backtest import seed
@@ -84,6 +85,67 @@ def trade(edge, correct=None, outcome="horizon", target=None, actual=None, day=0
                     ret, edge, edge > 0 if correct is None else correct, actual)
 
 
+def bars_series(symbol, opens, highs, lows, closes, first=date(2026, 1, 4)):
+    days = [first + timedelta(days=k) for k in range(len(closes))]
+    return PriceSeries(symbol, days, opens, highs, lows, closes, [1000] * len(closes), [10] * len(closes))
+
+
+def noise_market(stocks=30, sessions=160, seed=3):
+    """Random-walk stocks with no edge anywhere: what a strategy without skill trades in."""
+    rng, out = random.Random(seed), {}
+    for k in range(stocks):
+        price, o, h, l, c = 100.0, [], [], [], []
+        for _ in range(sessions):
+            open_ = price
+            price = price * (1 + rng.gauss(0, 0.02))
+            o.append(open_), c.append(price)
+            h.append(max(open_, price) * 1.005), l.append(min(open_, price) * 0.995)
+        out[f"S{k}"] = bars_series(f"S{k}", o, h, l, c)
+    return out
+
+
+class CostTests(SimpleTestCase):
+    def test_round_trip_costs_and_tax(self):
+        # Fees 0.385% each way plus Rs 25 on a Rs 100,000 sale: a flat trade loses about 0.79%.
+        self.assertAlmostEqual(ev.COSTS.net_return_pct(0), -0.792, places=3)
+        # A 10% rise keeps 8.45% after fees and 7.5% capital gains tax on the profit.
+        self.assertAlmostEqual(ev.COSTS.net_return_pct(10), 8.446, places=3)
+        # Losses pay fees but no tax.
+        self.assertAlmostEqual(ev.COSTS.net_return_pct(-5), -5.754, places=3)
+        self.assertAlmostEqual(ev.Costs(commission=0, sebon_fee=0, dp_charge=0, capital_gains_tax=0).net_return_pct(3), 3.0)
+
+
+class LongTradeTests(SimpleTestCase):
+    def test_buys_at_the_next_open_with_the_same_stop_and_target_distance(self):
+        s = bars_series("A", [100, 104, 104, 105], [101, 105, 108, 106], [99, 103, 103, 104], [100, 104, 105, 105])
+        outcome, j, exit_price, entry, stop, target = ev.simulate_long(s, 0, -0.05, 0.03, 3)
+        self.assertEqual((entry, round(stop, 2), round(target, 2)), (104, 98.8, 107.12))
+        self.assertEqual((outcome, j, round(exit_price, 2)), ("target", 2, 107.12))
+
+    def test_a_gap_through_the_stop_exits_at_the_open(self):
+        s = bars_series("A", [100, 100, 90, 91], [101, 101, 92, 92], [99, 99, 89, 90], [100, 100, 91, 91])
+        outcome, j, exit_price, *_ = ev.simulate_long(s, 0, -0.04, None, 3)
+        self.assertEqual((outcome, j, exit_price), ("stop", 2, 90))  # not the 96 stop it gapped through
+
+    def test_open_until_the_whole_horizon_exists(self):
+        s = bars_series("A", [100, 101], [101, 102], [99, 100], [100, 101])
+        self.assertIsNone(ev.simulate_long(s, 0, -0.04, 0.04, 3))
+
+    def test_sell_calls_are_exit_warnings_not_short_trades(self):
+        closes = [100 - i * 0.5 for i in range(60)]
+
+        def always_sell(ctx):
+            return [Signal("always", Direction.BEARISH, 2, "x", {})]
+
+        replay = ev.replay_strategy([series(closes)], "always", always_sell)
+        m = ev.metrics(replay)
+        self.assertEqual((m["calls"], m["settled"], replay.trades), (0, 0, []))
+        x = m["exit_warnings"]
+        self.assertEqual((x["calls"], x["settled"], x["fell_pct"]), (31, 21, 100.0))
+        self.assertLess(x["avg_move_pct"], 0)
+        self.assertEqual(quant.missing_metrics(m), "only sell calls (exit warnings) in this period; NEPSE can't be sold short")
+
+
 class MetricTests(SimpleTestCase):
     def test_accuracy_returns_and_forecast_error(self):
         replay = ev.Replay(trades=[
@@ -94,11 +156,16 @@ class MetricTests(SimpleTestCase):
         m = ev.metrics(replay, date(2026, 1, 1), date(2027, 1, 1))
         self.assertEqual((m["calls"], m["settled"], m["open"]), (5, 4, 1))
         self.assertEqual(m["accuracy"]["hit_rate"], 50.0)
-        self.assertEqual(m["accuracy"]["chance_hit_rate"], 50.0)
         self.assertEqual(m["accuracy"]["targets_hit_pct"], 25.0)
-        self.assertEqual(m["returns"]["profit_factor"], 2.67)  # 16 / 6
-        self.assertEqual(m["returns"]["avg_return_pct"], 2.5)
-        self.assertEqual(m["returns"]["edge_vs_baseline_pct"], 2.5)
+        net = [ev.COSTS.net_return_pct(e) for e in (10, -4, 6, -2)]
+        self.assertEqual(m["returns"]["profit_factor"], round((net[0] + net[2]) / -(net[1] + net[3]), 2))
+        self.assertEqual(m["returns"]["gross_profit_factor"], 2.67)  # 16 / 6 before costs
+        self.assertEqual(m["returns"]["avg_return_pct"], round(sum(net) / 4, 2))
+        self.assertEqual(m["returns"]["avg_gross_return_pct"], 2.5)
+        self.assertEqual(m["costs"]["round_trip_pct"], 0.792)
+        # No universe of stocks to draw random buys from: no comparison, and the list says why.
+        self.assertEqual((m["accuracy"]["chance_hit_rate"], m["accuracy"]["p_value"]), (None, None))
+        self.assertEqual(quant.missing_metrics(m), "no random buys to compare with, so no p-value")
         f = m["forecast_error"]
         # Errors: (112-110)/110 = +1.82%, (99-110)/110 = -10%.
         self.assertEqual((f["samples"], f["target_reached_pct"], f["mae_pct"], f["bias_pct"]), (2, 50.0, 5.91, -4.09))
@@ -107,10 +174,35 @@ class MetricTests(SimpleTestCase):
         self.assertEqual(m["risk"]["monte_carlo"]["runs"], ev.MONTE_CARLO_RUNS)
 
     def test_significance(self):
-        self.assertLess(ev.p_value(90, [0.5] * 100), 0.001)
-        self.assertGreater(ev.p_value(51, [0.5] * 100), 0.5)
+        randoms = [k / 100 for k in range(-100, 100)]
+        self.assertLess(ev.permutation_p_value(5.0, randoms), 0.011)  # better than every random set
+        self.assertLess(ev.permutation_p_value(-5.0, randoms), 0.011)  # or worse than every one
+        self.assertGreater(ev.permutation_p_value(0.0, randoms), 0.9)
+        self.assertIsNone(ev.permutation_p_value(1.0, []))
         low, high = ev.wilson_interval(50, 100)
         self.assertTrue(low < 50 < high)
+
+    def test_random_picks_are_not_significant_but_hindsight_is(self):
+        """The p-value must not call a strategy with no skill significant, and must catch one with skill."""
+        universe = noise_market()
+        rng = random.Random(5)
+
+        def picks(choose):
+            replay = ev.Replay(trades=[], baseline={}, universe=universe)
+            for day in range(20, 140, 2):
+                s = choose(day)
+                d = ev.draft(Signal("x", Direction.BULLISH, 2, "x", {"stop": s.closes[day] * 0.95, "target": s.closes[day] * 1.05}), s.closes[day])
+                ev._settle(replay, s, day, d)
+            return ev.metrics(replay)
+
+        lucky = picks(lambda day: rng.choice(list(universe.values())))
+        self.assertGreater(lucky["accuracy"]["p_value"], 0.05)
+        self.assertEqual(lucky["accuracy"]["random_runs"], ev.RANDOM_RUNS)
+        self.assertTrue(0 < lucky["accuracy"]["chance_hit_rate"] < 100)
+        # Peeking at the next 10 sessions: the best-performing stock each day.
+        hindsight = picks(lambda day: max(universe.values(), key=lambda s: s.closes[day + 10] / s.opens[day + 1]))
+        self.assertLessEqual(hindsight["accuracy"]["p_value"], 0.01)  # the smallest 200 random sets can give
+        self.assertGreater(hindsight["returns"]["edge_vs_random_pct"], 0)
 
     def test_drawdown(self):
         self.assertEqual(ev.max_drawdown([1.0, 1.2, 0.9, 1.3]), -25.0)
@@ -128,19 +220,16 @@ class MetricTests(SimpleTestCase):
     def test_all_losses_give_a_profit_factor_of_zero(self):
         m = ev.metrics(ev.Replay(trades=[trade(-3, day=0), trade(-1, day=1), trade(-2, day=2)], baseline={10: [1.0, -1.0]}))
         self.assertEqual((m["accuracy"]["hit_rate"], m["returns"]["profit_factor"]), (0.0, 0.0))
-        self.assertIsNotNone(m["accuracy"]["p_value"])
-        self.assertEqual(quant.missing_metrics(m), "")
+
+    def test_costs_turn_small_wins_into_losses(self):
+        m = ev.metrics(ev.Replay(trades=[trade(0.5, day=0), trade(0.6, day=1)], baseline={}))
+        self.assertEqual((m["accuracy"]["hit_rate"], m["returns"]["profit_factor"]), (0.0, 0.0))
+        self.assertIsNone(m["returns"]["gross_profit_factor"])  # no losses before costs
 
     def test_all_wins_explain_the_missing_profit_factor(self):
-        m = ev.metrics(ev.Replay(trades=[trade(3, day=0), trade(1, day=1)], baseline={10: [1.0, -1.0]}))
+        m = ev.metrics(ev.Replay(trades=[trade(3, day=0), trade(1.5, day=1)], baseline={10: [1.0, -1.0]}))
         self.assertEqual((m["accuracy"]["hit_rate"], m["returns"]["profit_factor"]), (100.0, None))
         self.assertEqual(quant.missing_metrics(m), "no losing calls, so profit factor is unbounded")
-
-    def test_p_value_when_history_only_ever_rose(self):
-        """A baseline that rose every day used to make chance a certainty and the p-value blank."""
-        m = ev.metrics(ev.Replay(trades=[trade(3, day=0), trade(-1, day=1), trade(2, day=2)], baseline={10: [1.0] * 50}))
-        self.assertIsNotNone(m["accuracy"]["p_value"])
-        self.assertLess(m["accuracy"]["chance_hit_rate"], 100.0)
 
     def test_replay_scores_calls_like_live_predictions(self):
         closes = [100 + i for i in range(60)]
@@ -169,7 +258,9 @@ class MetricTests(SimpleTestCase):
         day = pair["A"].dates[149]
         replay = ev.replay_cross_section(pair, "pairs", scan, start=day, end=day)
         self.assertEqual(replay.bars, 2)  # both stocks traded that day
-        self.assertEqual(sorted((t.symbol, t.direction) for t in replay.trades), [("A", "bearish"), ("B", "bullish")])
+        # B is bought; A's sell call can't be a short sale on NEPSE, so it is an exit warning.
+        self.assertEqual([(t.symbol, t.direction) for t in replay.trades], [("B", "bullish")])
+        self.assertEqual(len(replay.exits), 1)
         self.assertTrue(all(t.made_on == day for t in replay.trades))
         self.assertEqual(ev.replay_cross_section(pair, "basket_reversion", scan, start=day, end=day).trades, [])
 

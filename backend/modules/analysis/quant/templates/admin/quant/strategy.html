@@ -23,9 +23,11 @@
 <p>{{ strategy.description }}. Currently <strong>{{ strategy.enabled|yesno:"on,off" }}</strong> in live analysis.</p>
 <p>
 {% if replayable %}
-  An evaluation replays this strategy day by day over past prices (each day sees only the bars up to that day),
-  settles every call the same way live predictions are settled (target, stop, or the close at the horizon),
-  and times how long it takes. It also scores the predictions the live pipeline stored over the same period.
+  An evaluation replays this strategy day by day over past prices (each day sees only the bars up to that day).
+  Each buy call is bought at the next session's open and sold at its target, its stop or the close at the horizon,
+  after NEPSE fees and capital gains tax. Sell calls are scored as exit warnings, since NEPSE can't be sold short.
+  The result is compared with random buys of other stocks on the same days under the same rules.
+  It also scores the predictions the live pipeline stored over the same period.
 {% else %}
   This strategy compares stocks with each other, so it can't be replayed one stock at a time. An evaluation
   scores the predictions the live pipeline stored for it over the chosen period.
@@ -63,11 +65,11 @@
   {% endif %}
 
   {% if trades %}
-    <h3>Most recent replayed calls</h3>
-    <table><thead><tr><th>Symbol</th><th>Called on</th><th>Direction</th><th>Entry</th><th>Target</th><th>Stop</th><th>Outcome</th><th>Exit</th><th>Sessions</th><th>Return</th><th>Right?</th></tr></thead>
+    <h3>Most recent replayed buys</h3>
+    <table><thead><tr><th>Symbol</th><th>Called on</th><th>Direction</th><th>Entry</th><th>Target</th><th>Stop</th><th>Outcome</th><th>Exit</th><th>Sessions</th><th>Return</th><th>After costs</th></tr></thead>
     <tbody>{% for t in trades %}
       <tr><td>{{ t.symbol }}</td><td>{{ t.made_on }}</td><td>{{ t.direction }}</td><td>{{ t.entry }}</td><td>{{ t.target|default:"–" }}</td><td>{{ t.stop|default:"–" }}</td>
-          <td>{{ t.outcome }}</td><td>{{ t.exit_price }} on {{ t.exit_date }}</td><td>{{ t.sessions }}</td><td>{{ t.return_pct }}%</td><td>{{ t.correct|yesno:"yes,no" }}</td></tr>{% endfor %}
+          <td>{{ t.outcome }}</td><td>{{ t.exit_price }} on {{ t.exit_date }}</td><td>{{ t.sessions }}</td><td>{{ t.return_pct }}%</td><td>{% if t.net_pct is not None %}{{ t.net_pct }}%{% else %}–{% endif %}</td></tr>{% endfor %}
     </tbody></table>
   {% endif %}
 {% elif not running %}
