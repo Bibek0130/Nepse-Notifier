@@ -173,4 +173,4 @@ class StrategyAdminTests(TestCase):
         response = self.client.get("/admin/analysis/strategysetting/")
         self.assertContains(response, "pairs")
         self.assertContains(response, "ema_5_8_13")
-        self.assertEqual(StrategySetting.objects.count(), 13)
+        self.assertEqual(StrategySetting.objects.count(), 16)

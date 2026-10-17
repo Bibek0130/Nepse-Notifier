@@ -9,7 +9,7 @@ from django.utils import timezone
 from modules.marketdata import public as marketdata
 from modules.shared.locks import LockNotAcquired, single_flight
 
-from ..domain import evaluation, pca, stat_arb
+from ..domain import evaluation, nepsealpha, pca, stat_arb
 from ..domain.strategies import CROSS_SECTIONAL, DESCRIPTIONS, REGISTRY, StrategyConfig, sessions_needed
 from ..infrastructure.models import AnalysisRun, Prediction, QuantEvaluation
 from .backtest import _series
@@ -107,6 +107,7 @@ def run_evaluation(evaluation_id, progress=None):
         if ev.strategy in CROSS_SECTIONAL:
             replay = evaluation.replay_cross_section(
                 loaded, ev.strategy, cross_section_scanner(ev.strategy), ev.start_date, ev.end_date,
+                window_size=nepsealpha.WINDOW if ev.strategy in nepsealpha.STRATEGIES else evaluation.CROSS_WINDOW,
                 progress=lambda done, total: progress(total + done, 2 * total),
             )
         replay = replay or evaluation.Replay(trades=[], baseline={})
@@ -137,7 +138,9 @@ def stop_evaluations(ids, reason="Stopped before it finished"):
 
 
 def cross_section_scanner(strategy):
-    """What a live run does for pairs, basket or PCA leaders, for one day's {symbol: series}."""
+    """What a live run does for pairs, basket, PCA leaders or a NepseAlpha strategy, for one day's {symbol: series}."""
+    if strategy in nepsealpha.STRATEGIES:
+        return lambda series_by_symbol: nepsealpha.scan(series_by_symbol, {strategy})
     sectors = marketdata.get_sectors()
     scanner = pca.scan if strategy == pca.STRATEGY else stat_arb.scan
 

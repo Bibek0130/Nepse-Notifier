@@ -7,7 +7,10 @@ from dataclasses import dataclass, field
 
 TOP_PICKS = 3
 MIN_RISK_REWARD = 2.0  # 1:2 or better, from the stock's trade levels at today's price
-STRATEGY_LABELS = {"quant_momentum": "Quant momentum", "quant_reversion": "Quant mean reversion", "pca_leaders": "PCA sector leaders"}
+STRATEGY_LABELS = {
+    "quant_momentum": "Quant momentum", "quant_reversion": "Quant mean reversion", "pca_leaders": "PCA sector leaders",
+    "nepsealpha_hybrid": "NepseAlpha hybrid", "nepsealpha_seasonal": "NepseAlpha seasonal",
+}
 
 
 @dataclass(frozen=True)

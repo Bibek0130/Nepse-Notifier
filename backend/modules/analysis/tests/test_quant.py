@@ -427,8 +427,8 @@ class StrategiesApiTests(TestCase):
         quant.run_evaluation(quant.start_evaluation("forecast", days=90, end=date(2026, 9, 28)).pk)
         body = self.client.get("/api/analysis/strategies").json()
         names = [s["name"] for s in body["strategies"]]
-        self.assertEqual(names[:3], ["quant_momentum", "quant_reversion", "pca_leaders"])
-        self.assertEqual(len(names), 13)
+        self.assertEqual(names[:5], ["quant_momentum", "quant_reversion", "pca_leaders", "nepsealpha_hybrid", "nepsealpha_seasonal"])
+        self.assertEqual(len(names), 16)
         forecast = next(s for s in body["strategies"] if s["name"] == "forecast")
         self.assertEqual(forecast["evaluation"]["replay"]["hit_rate"], 100.0)
         self.assertTrue(forecast["enabled"])

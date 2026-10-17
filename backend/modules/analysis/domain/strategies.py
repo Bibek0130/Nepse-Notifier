@@ -6,7 +6,7 @@ tuned per deployment without touching the rules.
 from dataclasses import dataclass
 
 from . import indicators as ind
-from . import pca, stat_arb
+from . import nepsealpha, pca, stat_arb
 from .entities import Direction, Signal
 
 
@@ -268,6 +268,9 @@ CROSS_SECTIONAL = {
     "pairs": "Pairs trading: two related stocks whose price gap is stretched (z-score 2+) and has reliably closed before",
     "basket_reversion": "Basket mean reversion: a stock stretched away from its sector (or market) basket, expected to revert",
     "pca_leaders": "PCA sector leaders (Piyush-Quant): in a sideways market, buy the top-loading stocks of a driver sector once it turns up",
+    "nepsealpha_hybrid": "NepseAlpha trend + momentum hybrid: market above its 240-day average, buy liquid stocks at RSI under 30 and z-score -2",
+    "nepsealpha_seasonal": "NepseAlpha seasonal timing: buy the strongest liquid uptrending stocks in Falgun (mid-Feb), hold until Shrawan (mid-Jul)",
+    "nepsealpha_momentum": "NepseAlpha 12-month momentum: monthly, while the market rises, buy the 5 liquid stocks with the best past-year return",
 }
 
 DESCRIPTIONS = {
@@ -295,6 +298,7 @@ def sessions_needed(name, config=StrategyConfig()):
         "pairs": stat_arb.LOOKBACK,
         "basket_reversion": stat_arb.LOOKBACK,
         "pca_leaders": pca.LOOKBACK + 1,
+        **nepsealpha.SESSIONS_NEEDED,
     }
     return needs.get(name, 30)
 

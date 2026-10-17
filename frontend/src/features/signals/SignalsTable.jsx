@@ -15,6 +15,9 @@ export const STRATEGY_LABELS = {
   pca_leaders: "PCA sector leaders",
   quant_momentum: "Quant momentum",
   quant_reversion: "Quant mean reversion",
+  nepsealpha_hybrid: "NepseAlpha hybrid",
+  nepsealpha_seasonal: "NepseAlpha seasonal",
+  nepsealpha_momentum: "NepseAlpha 12-month momentum",
 };
 
 const ARROWS = { bullish: "▲", bearish: "▼", neutral: "■" };

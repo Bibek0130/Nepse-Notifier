@@ -8,8 +8,13 @@ Pure Python.
 """
 from dataclasses import dataclass
 
+from . import nepsealpha
+
 DEFAULT_HORIZON = 10  # sessions
-HORIZONS = {"forecast": 5, "quant_momentum": 20, "quant_reversion": 20, "pca_leaders": 60}  # long targets need room
+HORIZONS = {
+    "forecast": 5, "quant_momentum": 20, "quant_reversion": 20, "pca_leaders": 60,  # long targets need room
+    **nepsealpha.HORIZONS,  # seasonal buys are held Falgun to Shrawan, momentum buys a month
+}
 
 
 @dataclass(frozen=True)

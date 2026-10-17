@@ -139,7 +139,7 @@ def replay_strategy(series_list, name, strategy, start=None, end=None, config=St
     return replay
 
 
-CROSS_WINDOW = 200  # sessions per stock each replayed day of a cross-sectional strategy sees (they look back 120)
+CROSS_WINDOW = 200  # sessions per stock each replayed day of pairs, basket or PCA sees (they look back 120)
 
 
 def replay_cross_section(series_by_symbol, name, scan, start=None, end=None, window_size=CROSS_WINDOW, progress=None) -> Replay:
