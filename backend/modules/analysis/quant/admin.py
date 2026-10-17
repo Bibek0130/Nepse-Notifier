@@ -74,28 +74,37 @@ def metric_sections(m):
     a, f, r, k, s = m["accuracy"], m["forecast_error"], m["returns"], m["risk"], m["speed"]
     ci = a.get("hit_rate_ci95") or [None, None]
     mc = k.get("monte_carlo") or {}
+    c = m.get("costs") or {}
+    x = m.get("exit_warnings") or {}
     sections = [
-        ("Accuracy: did the price go the predicted way?", [
-            ("Calls", f"{m['calls']} ({m['settled']} settled, {m['open']} still open)", "Bullish and bearish calls the strategy made in the period"),
-            ("Hit rate", _num(a["hit_rate"], "%"), "Share of settled calls where the price moved the predicted way"),
+        ("Accuracy: did buying on these calls make money?", [
+            ("Buy calls", f"{m['calls']} ({m['settled']} settled, {m['open']} still open)",
+             "Bought at the next session's open; NEPSE can't be sold short, so sell calls are scored below as exit warnings"),
+            ("Hit rate", _num(a["hit_rate"], "%"), "Share of settled buys that made money after costs and tax"),
             ("95% range", f"{_num(ci[0], '%')} to {_num(ci[1], '%')}", "Where the true hit rate likely sits; narrow means enough calls to trust it"),
-            ("Chance level", _num(a["chance_hit_rate"], "%"), "Hit rate from calling every day the same way (the market's own drift)"),
-            ("p-value", _p(a["p_value"]), "Below 0.05: the hit rate is unlikely to be luck versus the chance level"),
+            ("Random buys", _num(a["chance_hit_rate"], "%"),
+             "Hit rate of buying a random stock on the same days, with the same stop, target and holding period"),
+            ("p-value", _p(a["p_value"]),
+             f"Below 0.05: the average return is unlikely to be luck, compared with {a.get('random_runs', 0)} sets of random buys"),
             ("Target / stop / expired", f"{_num(a['targets_hit_pct'], '%')} / {_num(a['stops_hit_pct'], '%')} / {_num(a['expired_pct'], '%')}",
-             "How calls ended: target touched first, stop touched first, or settled at the horizon"),
+             "How buys ended: target touched first, stop touched first, or sold at the horizon"),
         ]),
         ("Forecast vs actual price", [
-            ("Calls with a target", f"{f['calls_with_target']} (target reached {_num(f['target_reached_pct'], '%')})", "Calls that named a price target"),
+            ("Calls with a target", f"{f['calls_with_target']} (target reached {_num(f['target_reached_pct'], '%')})", "Buys that named a price target"),
             ("Mean absolute error", _num(f["mae_pct"], "%"), "Average gap between the target and the actual close at the horizon"),
             ("Root mean square error", _num(f["rmse_pct"], "%"), "Like MAE but punishes big misses more"),
             ("Bias", _num(f["bias_pct"], "%", signed=True), "Negative: targets were too optimistic on average; positive: too cautious"),
         ]),
-        ("Returns per call", [
-            ("Average return", _num(r["avg_return_pct"], "%", signed=True), "Average move in the predicted direction, entry to exit (expectancy)"),
-            ("Median return", _num(r["median_return_pct"], "%", signed=True), "The typical call, less swayed by a few big ones"),
-            ("Average win / loss", f"{_num(r['avg_win_pct'], '%', True)} / {_num(r['avg_loss_pct'], '%', True)}", "Size of winning versus losing calls"),
-            ("Profit factor", _num(r["profit_factor"]), "Total gains divided by total losses; above 1 makes money, above 1.5 is good"),
-            ("Edge vs buying any day", _num(r["edge_vs_baseline_pct"], "%", signed=True), "Bullish calls' average return minus buying on a random day"),
+        ("Returns per buy, after costs", [
+            ("Average return", _num(r["avg_return_pct"], "%", signed=True),
+             f"What an investor kept per buy, after about {_num(c.get('round_trip_pct'), '%')} round-trip fees and "
+             f"{_num((c.get('capital_gains_tax') or 0) * 100, '%')} tax on gains (before costs: {_num(r.get('avg_gross_return_pct'), '%', True)})"),
+            ("Median return", _num(r["median_return_pct"], "%", signed=True), "The typical buy, less swayed by a few big ones"),
+            ("Average win / loss", f"{_num(r['avg_win_pct'], '%', True)} / {_num(r['avg_loss_pct'], '%', True)}", "Size of winning versus losing buys"),
+            ("Profit factor", _num(r["profit_factor"]),
+             f"Total gains divided by total losses after costs; above 1 makes money (before costs: {_num(r.get('gross_profit_factor'))})"),
+            ("Edge vs random buys", _num(r.get("edge_vs_random_pct"), "%", signed=True),
+             f"Average return minus random buys' ({_num(r.get('random_avg_return_pct'), '%', True)})"),
             ("Sharpe / Sortino", f"{_num(r['sharpe'])} / {_num(r['sortino'])}", "Yearly return per unit of risk; above 1 is good (Sortino counts only falls)"),
         ]),
         ("Risk", [
@@ -109,6 +118,12 @@ def metric_sections(m):
              if mc else "–", "Max drawdown across those redraws"),
         ]),
     ]
+    if x.get("calls"):
+        sections.append(("Sell calls (exit warnings)", [
+            ("Sell calls", f"{x['calls']} ({x['settled']} settled)", "Calls to sell or stay out; not trades, since NEPSE has no short selling"),
+            ("Price fell after", _num(x["fell_pct"], "%"), f"Share where the price was lower at the horizon (any day: {_num(x['chance_fell_pct'], '%')})"),
+            ("Average move", _num(x["avg_move_pct"], "%", signed=True), "Price change over the horizon; negative means the warning helped"),
+        ]))
     if s.get("bars_evaluated"):
         sections.append(("Speed", [
             ("Bars replayed", _num(s["bars_evaluated"]), "Symbol-days the strategy was run on"),

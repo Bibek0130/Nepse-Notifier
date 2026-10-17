@@ -104,6 +104,7 @@ def _evaluation_summary(m):
         "chance_hit_rate": a["chance_hit_rate"],
         "p_value": a["p_value"],
         "avg_return_pct": r["avg_return_pct"],
+        "random_avg_return_pct": r.get("random_avg_return_pct"),
         "profit_factor": r["profit_factor"],
         "sharpe": r["sharpe"],
         "max_drawdown_pct": k["max_drawdown_pct"],
