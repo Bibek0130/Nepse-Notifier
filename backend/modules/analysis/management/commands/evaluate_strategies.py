@@ -17,7 +17,7 @@ class Command(BaseCommand):
         if not started:
             self.stdout.write("Every strategy has a recent evaluation (or one running).")
             return
-        self.stdout.write(f"{'strategy':18} {'buys':>6} {'settled':>8} {'hit rate':>9} {'random':>7} {'p-value':>8} {'profit f.':>10} {'avg net':>8}  note")
+        self.stdout.write(f"{'strategy':20} {'buys':>6} {'settled':>8} {'hit rate':>9} {'random':>7} {'p-value':>8} {'profit f.':>10} {'avg net':>8}  note")
         for n, ev in enumerate(started):
             try:
                 ev = quant.run_evaluation(ev.pk, progress=self._progress(ev.strategy))
@@ -28,12 +28,12 @@ class Command(BaseCommand):
                 self.stderr.write(f"Stopped. Not measured: {', '.join(e.strategy for e in started[n:])}. Run this again to measure them.")
                 return
             if ev.status != ev.Status.OK:
-                self.stdout.write(f"{ev.strategy:18} failed: {ev.error}")
+                self.stdout.write(f"{ev.strategy:20} failed: {ev.error}")
                 continue
             m = quant.headline(ev)
             a, r = m.get("accuracy", {}), m.get("returns", {})
             self.stdout.write(
-                f"{ev.strategy:18} {m.get('calls', 0):>6} {m.get('settled', 0):>8} {_v(a.get('hit_rate'), '%'):>9} "
+                f"{ev.strategy:20} {m.get('calls', 0):>6} {m.get('settled', 0):>8} {_v(a.get('hit_rate'), '%'):>9} "
                 f"{_v(a.get('chance_hit_rate'), '%'):>7} {_v(a.get('p_value')):>8} {_v(r.get('profit_factor')):>10} "
                 f"{_v(r.get('avg_return_pct'), '%'):>8}  {quant.missing_metrics(m)}"
             )

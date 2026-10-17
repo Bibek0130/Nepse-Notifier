@@ -108,3 +108,15 @@ class TopPicksTests(SimpleTestCase):
         content = build_digest(REPORT, Preferences(), scorecard=card, quant_strategies=QUANT)
         self.assertEqual([r["strategy"] for r in content.track_record], ["pairs"])
         self.assertEqual(content.track_record_since, "2026-04-15")
+
+
+class NepseAlphaPicksTests(SimpleTestCase):
+    def test_hybrid_and_seasonal_buys_reach_the_email_but_momentum_does_not(self):
+        from modules.analysis.public import QUANT_STRATEGIES
+
+        report = {**REPORT, "signals": [
+            signal("NABIL", "nepsealpha_hybrid"), signal("NICA", "nepsealpha_seasonal"), signal("ADBL", "nepsealpha_momentum"),
+        ]}
+        content = build_digest(report, Preferences(), quant_strategies=QUANT_STRATEGIES)
+        self.assertEqual({p.symbol for p in content.picks}, {"NABIL", "NICA"})
+        self.assertEqual({p.strategy_labels for p in content.picks}, {"NepseAlpha hybrid", "NepseAlpha seasonal"})

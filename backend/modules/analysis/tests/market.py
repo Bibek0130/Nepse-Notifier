@@ -28,7 +28,8 @@ def trading_days(first, n):
     return days
 
 
-def bars(seed=11, first=date(2024, 1, 1), sessions=SESSIONS):
+# Starts mid-2023 so two Falgun seasons (2024, 2025) fall inside the evaluated period and settle.
+def bars(seed=11, first=date(2023, 7, 2), sessions=SESSIONS):
     """{symbol: [Candle]} for every stock in ``SECTORS``."""
     rng = random.Random(seed)
     days = trading_days(first, sessions)

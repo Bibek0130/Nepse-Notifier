@@ -74,11 +74,18 @@ Intraday runs append the latest snapshot as a provisional bar for today.
 | `quant_momentum` | Momentum leg of [Poudel & Paudel (2025)](https://www.nepjol.info/index.php/qjmss/article/view/87782), a backtest on NEPSE: RSI(14) crosses above 60 while price is above its 240-day average; stop 4% under entry, target at 1:4.5 risk-reward, 4-day cooldown. A close back below the 240-day average is the exit (2) |
 | `quant_reversion` | Mean-reversion leg of the same paper: close at least 1.5 standard deviations under its 15-day mean (z-score) with RSI at or below 35, still above the 240-day average; stop at the 70-day average (4% if that is above the price, never more than 8%), 1:4.5 target, 3-day cooldown (2) |
 | `pca_leaders` | PCA sector leaders, from [Piyush-Quant's NEPSE PCA study](https://github.com/Piyush-Quant/Trading-Strategies-Nepal-/blob/main/1.%20PCA%20in%20Nepse/01.%20Readme.md): only while the market (equal-weighted over every stock) moved less than 10% in 120 sessions. PCA on the sector indices' daily returns finds the 2 sectors weighing most on the first component; one that fell over the window and closes back above its 20-day average has turned up, and PCA inside it picks its top 3 stocks by loading (at least half the top loading) as buys. Stop under the lowest of the last 10 closes (at most 10% away), 1:3 target, 60-session horizon (2, or 3 when the sector also breaks its 20-day high). Without sectors, the first component of the 60 most-traded stocks stands in for the driver sector and its top 5 stocks are the leaders |
+| `nepsealpha_hybrid` | Trend + momentum hybrid, the top pick of the NepseAlpha report "Quantitative Strategies for NEPSE" (after Poudel & Paudel 2025): only while the equal-weighted market is above its 240-day average, buy one of the 100 most-traded stocks whose RSI(14) is under 30 and close is 2+ standard deviations under its 15-day mean; first day of a dip only, at most 4 a day (most oversold first). Target is the 15-day mean, stop half that distance below (2% to 8%), 20-session horizon (2) |
+| `nepsealpha_seasonal` | Seasonal timing from the same report (NepseAlpha's "buy in Falgun, sell in Shrawan"): on Falgun's first session (from 13 February) buy the 5 most-traded stocks above their 50-day average with the best six-month return; later in Falgun (to 13 March) buy those that close back above their 50-day average for the first time this Falgun. Must be up over six months; stop 15% under, held about 100 sessions to Shrawan (2) |
+| `nepsealpha_momentum` | 12-month momentum from the same report: on the first session of each month, while the market is above its 240-day average, buy the 5 most-traded stocks with the best positive return from a year ago to a month ago; stop 10% under, held a month (20 sessions) (2) |
 | `forecast` | A linear trend over 20 sessions with a good fit (R² ≥ 0.6) is projected 5 sessions ahead. It describes the trend and is not a prediction |
 
-`pairs`, `basket_reversion` and `pca_leaders` compare stocks with each other, so they run once
-over the whole run in `finish_run` rather than per symbol (`modules/analysis/domain/stat_arb.py`,
-`modules/analysis/domain/pca.py`). Sectors come from `Instrument.sector`, which is filled in
+`pairs`, `basket_reversion`, `pca_leaders` and the `nepsealpha_*` strategies compare stocks with
+each other, so they run once over the whole run in `finish_run` rather than per symbol
+(`modules/analysis/domain/stat_arb.py`, `pca.py`, `nepsealpha.py`). The NepseAlpha strategies
+count a close-to-close move beyond NEPSE's 10% daily band as a bonus or rights adjustment (no
+change), so unadjusted prices don't fake a crash or rally. The report publishes no stops or
+targets; the ones above are ours. Its fifth candidate, fundamental factors, needs company
+financials the project doesn't collect, so it is not included. Sectors come from `Instrument.sector`, which is filled in
 through Django admin, or all at once from a CSV with `symbol,sector` rows:
 `python manage.py import_sectors sectors.csv`.
 
@@ -106,7 +113,7 @@ local mode) and the page refreshes until it's done:
 
 - **Replay over history**: walk-forward, each day seeing only the bars up to that day, with every
   call settled exactly like a live prediction (target, stop or horizon). `pairs`,
-  `basket_reversion` and `pca_leaders` compare stocks with each other, so they replay over all
+  `basket_reversion`, `pca_leaders` and `nepsealpha_*` compare stocks with each other, so they replay over all
   stocks that traded each day together, grouped by sector like a live run.
 - **Accuracy**: hit rate with a 95% confidence interval, the chance level (calling every day the
   same way) and a p-value against it; how calls ended (target, stop, expired).
@@ -171,7 +178,8 @@ Manage subscribers in Django admin (**Notifications → Subscribers**). Each sub
 * **Include intraday:** also receive the midday updates, not only the market-close digest.
 
 Each email carries only the **top 3 quant picks**: stocks that a quant strategy
-(`quant_momentum`, `quant_reversion`, `pca_leaders`) calls a buy and whose trade levels give
+(`quant_momentum`, `quant_reversion`, `pca_leaders`, and the two the NepseAlpha report ranks
+highest, `nepsealpha_hybrid` and `nepsealpha_seasonal`) calls a buy and whose trade levels give
 risk : reward of 1:2 or better at today's price. Stocks with a quant sell call (the momentum
 exit) are skipped. Picks are ranked by how many quant strategies agree, then the strongest
 call, then the better risk : reward, and are chosen across the whole market. When fewer than
