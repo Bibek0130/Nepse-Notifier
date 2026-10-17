@@ -233,13 +233,20 @@ def simulate_long(series, i, stop_pct, target_pct, horizon):
 
 
 def random_buys(trades, universe, runs=RANDOM_RUNS, costs=COSTS, seed=11):
-    """The strategy's buys redone ``runs`` times with a random stock bought on each call's day, under
-    the same stop, target and horizon rules. Returns (average net returns, one per run; hit rate of
-    all random buys), or None when there is nothing to compare with."""
+    """The strategy's buys redone ``runs`` times with random stocks, under the same stop, target and
+    horizon rules. Returns (average net returns, one per run; hit rate of all random buys), or None
+    when there is nothing to compare with.
+
+    Each run swaps every stock the strategy bought for one random stock, kept for all of that
+    stock's calls. Calls on one stock a few days apart share most of their future, and calls on one
+    day share the market's move; random buys with the same structure have the same luck, so the
+    comparison doesn't flatter a strategy that keeps buying the same stock.
+    """
     if not trades or not universe:
         return None
-    by_day = {}
+    by_day, index = {}, {}
     for symbol, s in universe.items():
+        index[symbol] = {d: i for i, d in enumerate(s.dates)}
         for i, d in enumerate(s.dates):
             by_day.setdefault(d, []).append((s, i))
     plans = []
@@ -247,23 +254,28 @@ def random_buys(trades, universe, runs=RANDOM_RUNS, costs=COSTS, seed=11):
         stop_pct = t.stop / t.entry - 1 if t.stop else None
         target_pct = t.target / t.entry - 1 if t.target else None
         if by_day.get(t.made_on):
-            plans.append((by_day[t.made_on], stop_pct, target_pct, t.horizon))
+            plans.append((t.symbol, t.made_on, stop_pct, target_pct, t.horizon))
     if not plans:
         return None
+    symbols = sorted(universe)
     rng, means, wins, total = random.Random(seed), [], 0, 0
     for _ in range(runs):
-        nets = []
-        for choices, stop_pct, target_pct, horizon in plans:
-            for _attempt in range(5):  # a stock too close to the end of its history can't settle; try another
-                s, i = rng.choice(choices)
-                result = simulate_long(s, i, stop_pct, target_pct, horizon)
+        swap, nets = {}, []
+        for symbol, day, stop_pct, target_pct, horizon in plans:
+            other = swap.setdefault(symbol, rng.choice(symbols))
+            i = index[other].get(day)
+            result = simulate_long(universe[other], i, stop_pct, target_pct, horizon) if i is not None else None
+            for _attempt in range(5):  # that stock didn't trade that day, or is too near the end of its history
                 if result:
-                    _, _, exit_price, entry, _, _ = result
-                    net = costs.net_return_pct((exit_price / entry - 1) * 100)
-                    nets.append(net)
-                    wins += net > 0
-                    total += 1
                     break
+                s, i = rng.choice(by_day[day])
+                result = simulate_long(s, i, stop_pct, target_pct, horizon)
+            if result:
+                _, _, exit_price, entry, _, _ = result
+                net = costs.net_return_pct((exit_price / entry - 1) * 100)
+                nets.append(net)
+                wins += net > 0
+                total += 1
         if nets:
             means.append(statistics.fmean(nets))
     return (means, wins / total * 100) if means else None
