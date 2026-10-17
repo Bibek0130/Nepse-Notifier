@@ -357,3 +357,48 @@ class HistoryWindowTests(SimpleTestCase):
         for days in (series_module.HISTORY_DAYS, backtest.WARMUP_DAYS):
             sessions = days * 5 / 7 - 40 * days / 365  # Sun-Thu trading, minus a generous count of holidays
             self.assertGreaterEqual(sessions, needed, days)
+
+
+class StoppedEvaluationTests(TestCase):
+    """bibek stopped a long evaluate_strategies run with Ctrl+C during pairs: the run must say it stopped and
+    leave nothing "running", or admin refuses to evaluate those strategies again for an hour."""
+
+    def setUp(self):
+        seed("CLIMB", [100 + i * 0.8 for i in range(150)], date(2026, 5, 1))
+
+    def test_ctrl_c_frees_the_current_and_pending_evaluations(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        real = quant.run_evaluation
+
+        def run(pk, progress=None):
+            if QuantEvaluation.objects.get(pk=pk).strategy == "pairs":
+                with mock.patch.object(evaluation_module(), "replay_cross_section", side_effect=KeyboardInterrupt):
+                    return real(pk, progress)
+            return real(pk, progress)
+
+        out, err = StringIO(), StringIO()
+        with mock.patch.object(quant, "run_evaluation", side_effect=run):
+            call_command("evaluate_strategies", "--days", "60", stdout=out, stderr=err)
+        self.assertFalse(QuantEvaluation.objects.filter(status="running").exists())
+        self.assertEqual(QuantEvaluation.objects.get(strategy="pairs").error, "Stopped before it finished")
+        self.assertEqual(QuantEvaluation.objects.get(strategy="forecast").status, "ok")
+        self.assertIn("Stopped. Not measured: pairs, basket_reversion, pca_leaders", err.getvalue())
+        quant.start_evaluation("pairs")  # admin can start it again straight away
+
+    def test_progress_is_reported_up_to_done(self):
+        for name in ("forecast", "pairs"):
+            seen = []
+            quant.run_evaluation(quant.start_evaluation(name, days=60, end=date(2026, 9, 27)).pk,
+                                 progress=lambda done, total: seen.append(done / total))
+            with self.subTest(strategy=name):
+                self.assertEqual(seen, sorted(seen))
+                self.assertEqual(seen[-1], 1.0)
+
+
+def evaluation_module():
+    from modules.analysis.domain import evaluation
+
+    return evaluation

@@ -52,11 +52,15 @@ def ingest_market(kind=RunKind.INTRADAY, *, sources=None, now=None, force=False)
     kind = RunKind(kind)
     now = now or timezone.now()
     trading_date = timezone.localdate(now)
+    is_trading_day = calendar.is_trading_day(trading_date)
+    if force and (not is_trading_day or timezone.localtime(now).time() < calendar.MARKET_OPEN):
+        # Outside a session the sources still show the last one, so the prices belong to that day:
+        # dating them today would add a made-up bar (a weekend copy of Thursday) to every stock's history.
+        trading_date, is_trading_day = calendar.previous_trading_day(trading_date), True
     run = IngestionRun.objects.create(kind=kind.value, trading_date=trading_date)
     log = StageLog(run)
 
     # 1. Schedule: only on trading days, and never two runs at once.
-    is_trading_day = calendar.is_trading_day(trading_date)
     if not is_trading_day and not force:
         log.mark("schedule", "skipped", reason="market closed")
         return log.finish(IngestionRun.Status.SKIPPED)

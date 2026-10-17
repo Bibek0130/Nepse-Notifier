@@ -79,13 +79,19 @@ def start_all(days=DEFAULT_DAYS, only_stale_days=None):
     return [start_evaluation(name, days=days) for name in DESCRIPTIONS if name not in busy | fresh]
 
 
-def run_evaluation(evaluation_id):
+def run_evaluation(evaluation_id, progress=None):
+    """Replay one strategy and store its measures. ``progress(done, total)`` reports how far it got."""
     ev = QuantEvaluation.objects.get(pk=evaluation_id)
     started = time.perf_counter()
+    progress = progress or (lambda done, total: None)
     try:
         replay, longest, tested = None, 0, 0
         loaded = {}
-        for symbol in ev.symbols or marketdata.list_symbols():
+        symbols = ev.symbols or marketdata.list_symbols()
+        cross = ev.strategy in CROSS_SECTIONAL
+        for n, symbol in enumerate(symbols, 1):
+            # Loading is most of a cross-sectional replay's first part; the day-by-day scan is the rest.
+            progress(n, len(symbols) * (2 if cross else 1))
             # Bars after the end date only settle the last calls.
             series = _series(symbol, ev.start_date, ev.end_date + timedelta(days=60))
             longest = max(longest, sum(d <= ev.end_date for d in series.dates))
@@ -99,7 +105,10 @@ def run_evaluation(evaluation_id):
             else:
                 loaded[symbol] = series
         if ev.strategy in CROSS_SECTIONAL:
-            replay = evaluation.replay_cross_section(loaded, ev.strategy, cross_section_scanner(ev.strategy), ev.start_date, ev.end_date)
+            replay = evaluation.replay_cross_section(
+                loaded, ev.strategy, cross_section_scanner(ev.strategy), ev.start_date, ev.end_date,
+                progress=lambda done, total: progress(total + done, 2 * total),
+            )
         replay = replay or evaluation.Replay(trades=[], baseline={})
         ev.metrics = evaluation.metrics(replay, ev.start_date, ev.end_date)
         ev.metrics["history"] = {"longest_sessions": longest, "sessions_needed": sessions_needed(ev.strategy)}
@@ -110,10 +119,21 @@ def run_evaluation(evaluation_id):
     except Exception as exc:
         logger.exception("Quant evaluation %s failed", ev.pk)
         ev.status, ev.error = QuantEvaluation.Status.FAILED, str(exc)
+    except KeyboardInterrupt:
+        # Stopped by hand (Ctrl+C): record it, or the row stays "running" and blocks a new evaluation for an hour.
+        stop_evaluations([ev.pk])
+        raise
     ev.duration_seconds = round(time.perf_counter() - started, 2)
     ev.finished_at = timezone.now()
     ev.save()
     return ev
+
+
+def stop_evaluations(ids, reason="Stopped before it finished"):
+    """Mark evaluations that will not finish (stopped by hand) as failed, so new ones can start."""
+    QuantEvaluation.objects.filter(pk__in=ids, status=QuantEvaluation.Status.RUNNING).update(
+        status=QuantEvaluation.Status.FAILED, error=reason, finished_at=timezone.now(),
+    )
 
 
 def cross_section_scanner(strategy):
