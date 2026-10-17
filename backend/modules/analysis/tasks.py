@@ -48,3 +48,9 @@ def run_backtest(days=365):
 def evaluate_strategy(evaluation_id):
     """Admin Quant section: replay one strategy and measure its accuracy and speed."""
     return quant.run_evaluation(evaluation_id).pk
+
+
+@shared_task(time_limit=4 * 60 * 60)
+def evaluate_all_strategies(days=quant.DEFAULT_DAYS):
+    """Weekly: re-measure every strategy, so the Quant list never goes stale or blank."""
+    return [quant.run_evaluation(ev.pk).pk for ev in quant.start_all(days)]

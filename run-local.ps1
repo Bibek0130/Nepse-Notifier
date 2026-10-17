@@ -186,6 +186,10 @@ function StartWindow($title, $dir, $command) {
 Step "Starting the Django server (admin and API) at http://localhost:8000"
 StartWindow "NEPSE Notifier - server" $backend "& '$python' manage.py runserver"
 
+# Hit rate, p-value and profit factor in admin > Quant come from these evaluations.
+Step "Measuring any strategy not evaluated in the past week (admin > Quant strategies), in its own window"
+StartWindow "NEPSE Notifier - strategy evaluation" $backend "& '$python' manage.py evaluate_strategies --stale-days 7"
+
 if (Get-Command npm -ErrorAction SilentlyContinue) {
     if (-not (Test-Path (Join-Path $frontend "node_modules"))) {
         Step "Installing dashboard packages"

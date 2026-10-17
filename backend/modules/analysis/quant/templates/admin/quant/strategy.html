@@ -49,7 +49,7 @@
       <div class="quant-card"><h3>{{ title }}</h3><table>{% for label, value, help in rows %}
         <tr><td>{{ label }}</td><td class="v">{{ value }}</td><td class="h">{{ help }}</td></tr>{% endfor %}</table></div>{% endfor %}
     </div>
-  {% elif replayable %}<p>No calls in the replay: not enough price history in this period (the quant strategies need about 240 sessions).</p>{% endif %}
+  {% elif replayable %}<p>No settled calls in the replay: {{ replay_note }}.</p>{% endif %}
 
   <h3>Live predictions over the same period</h3>
   {% if live_sections %}

@@ -6,6 +6,7 @@ tuned per deployment without touching the rules.
 from dataclasses import dataclass
 
 from . import indicators as ind
+from . import pca, stat_arb
 from .entities import Direction, Signal
 
 
@@ -282,6 +283,20 @@ DESCRIPTIONS = {
     "quant_reversion": "Quant mean reversion (Poudel & Paudel 2025): 15-day z-score dip with RSI oversold above the 240-day trend",
     **CROSS_SECTIONAL,
 }
+
+
+def sessions_needed(name, config=StrategyConfig()):
+    """Trading days of history a stock needs before ``name`` can make a call at all."""
+    needs = {
+        "trend": 201,
+        "ma_cross": 51,
+        "quant_momentum": config.quant_trend_period + 1,
+        "quant_reversion": config.quant_trend_period + 1,
+        "pairs": stat_arb.LOOKBACK,
+        "basket_reversion": stat_arb.LOOKBACK,
+        "pca_leaders": pca.LOOKBACK + 1,
+    }
+    return needs.get(name, 30)
 
 
 def selected(enabled_names=None):

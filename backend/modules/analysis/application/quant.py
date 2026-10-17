@@ -9,10 +9,11 @@ from django.utils import timezone
 from modules.marketdata import public as marketdata
 from modules.shared.locks import LockNotAcquired, single_flight
 
-from ..domain import evaluation
-from ..domain.strategies import DESCRIPTIONS, REGISTRY, StrategyConfig
+from ..domain import evaluation, pca, stat_arb
+from ..domain.strategies import CROSS_SECTIONAL, DESCRIPTIONS, REGISTRY, StrategyConfig, sessions_needed
 from ..infrastructure.models import AnalysisRun, Prediction, QuantEvaluation
 from .backtest import _series
+from .cross_section import groups_for
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,9 @@ def running_evaluation(strategy):
 
 
 def can_replay(strategy):
-    """Per-symbol strategies replay over history; pairs, basket and PCA leaders are scored on live predictions only."""
-    return strategy in REGISTRY
+    """Every strategy replays over history: per-symbol ones one stock at a time, pairs, basket and
+    PCA leaders over all stocks together, day by day."""
+    return strategy in REGISTRY or strategy in CROSS_SECTIONAL
 
 
 def start_evaluation(strategy, days=DEFAULT_DAYS, symbols=None, end=None):
@@ -62,25 +64,47 @@ def start_evaluation(strategy, days=DEFAULT_DAYS, symbols=None, end=None):
         raise EvaluationRunning(running_evaluation(strategy) or QuantEvaluation(strategy=strategy)) from None
 
 
+def start_all(days=DEFAULT_DAYS, only_stale_days=None):
+    """Start an evaluation of every strategy that isn't being evaluated already.
+
+    With ``only_stale_days``, skip strategies that already have an evaluation that recent with
+    settled calls (one that found nothing to measure, e.g. before the history download, is redone).
+    """
+    busy = set(QuantEvaluation.objects.filter(status=QuantEvaluation.Status.RUNNING).values_list("strategy", flat=True))
+    fresh = set()
+    if only_stale_days is not None:
+        since = timezone.now() - timedelta(days=only_stale_days)
+        recent = QuantEvaluation.objects.filter(status=QuantEvaluation.Status.OK, finished_at__gte=since)
+        fresh = {ev.strategy for ev in recent if headline(ev).get("settled")}
+    return [start_evaluation(name, days=days) for name in DESCRIPTIONS if name not in busy | fresh]
+
+
 def run_evaluation(evaluation_id):
     ev = QuantEvaluation.objects.get(pk=evaluation_id)
     started = time.perf_counter()
     try:
-        if can_replay(ev.strategy):
-            replay, tested = None, 0
-            for symbol in ev.symbols or marketdata.list_symbols():
-                # Bars after the end date only settle the last calls.
-                series = _series(symbol, ev.start_date, ev.end_date + timedelta(days=60))
-                if not any(ev.start_date <= d <= ev.end_date for d in series.dates):
-                    continue
-                tested += 1
+        replay, longest, tested = None, 0, 0
+        loaded = {}
+        for symbol in ev.symbols or marketdata.list_symbols():
+            # Bars after the end date only settle the last calls.
+            series = _series(symbol, ev.start_date, ev.end_date + timedelta(days=60))
+            longest = max(longest, sum(d <= ev.end_date for d in series.dates))
+            if not any(ev.start_date <= d <= ev.end_date for d in series.dates):
+                continue
+            tested += 1
+            if ev.strategy in REGISTRY:
                 replay = evaluation.replay_strategy(
                     [series], ev.strategy, REGISTRY[ev.strategy], ev.start_date, ev.end_date, replay=replay,
                 )
-            if replay is not None:
-                ev.metrics = evaluation.metrics(replay, ev.start_date, ev.end_date)
-                ev.trades = evaluation.trade_rows(replay)
-            ev.symbols_tested = tested
+            else:
+                loaded[symbol] = series
+        if ev.strategy in CROSS_SECTIONAL:
+            replay = evaluation.replay_cross_section(loaded, ev.strategy, cross_section_scanner(ev.strategy), ev.start_date, ev.end_date)
+        replay = replay or evaluation.Replay(trades=[], baseline={})
+        ev.metrics = evaluation.metrics(replay, ev.start_date, ev.end_date)
+        ev.metrics["history"] = {"longest_sessions": longest, "sessions_needed": sessions_needed(ev.strategy)}
+        ev.trades = evaluation.trade_rows(replay)
+        ev.symbols_tested = tested
         ev.live = live_record(ev.strategy, ev.start_date, ev.end_date)
         ev.status = QuantEvaluation.Status.OK
     except Exception as exc:
@@ -90,6 +114,46 @@ def run_evaluation(evaluation_id):
     ev.finished_at = timezone.now()
     ev.save()
     return ev
+
+
+def cross_section_scanner(strategy):
+    """What a live run does for pairs, basket or PCA leaders, for one day's {symbol: series}."""
+    sectors = marketdata.get_sectors()
+    scanner = pca.scan if strategy == pca.STRATEGY else stat_arb.scan
+
+    def scan(series_by_symbol):
+        series = {s: v for s, v in series_by_symbol.items() if len(v) >= min(stat_arb.LOOKBACK, pca.LOOKBACK + 1)}
+        groups = groups_for(series, sectors)
+        dates = {s: v.dates for s, v in series.items()}
+        closes = {s: v.closes for s, v in series.items()}
+        return scanner(dates, closes, groups)
+
+    return scan
+
+
+def headline(ev):
+    """The measures to headline for an evaluation: the replay's, or the live record's when only live calls settled."""
+    replay, live = ev.metrics or {}, ev.live or {}
+    return live if not replay.get("settled") and live.get("settled") else replay or live
+
+
+def missing_metrics(metrics):
+    """Why hit rate, p-value or profit factor is blank for one set of measures, or "" when all three are there."""
+    if not metrics:
+        return "not measured"
+    history = metrics.get("history") or {}
+    if not metrics.get("calls"):
+        need, have = history.get("sessions_needed"), history.get("longest_sessions")
+        if need and have is not None and have < need:
+            return f"no calls: needs {need} sessions of history, the longest saved is {have}"
+        return "no calls in this period"
+    if not metrics.get("settled"):
+        return f"{metrics['open']} calls, none settled yet"
+    if metrics["returns"]["profit_factor"] is None:
+        return "no losing calls, so profit factor is unbounded"
+    if metrics["accuracy"]["p_value"] is None:
+        return "too few calls for a p-value"
+    return ""
 
 
 def live_record(strategy, start, end):

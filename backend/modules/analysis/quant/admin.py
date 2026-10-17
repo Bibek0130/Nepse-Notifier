@@ -6,7 +6,7 @@ from django.contrib import admin, messages
 from django.db import connection
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
-from django.urls import reverse
+from django.urls import path, reverse
 from django.utils.html import format_html
 
 from modules.analysis.application import quant
@@ -26,6 +26,31 @@ def dispatch(evaluation_id):
     def work():
         try:
             quant.run_evaluation(evaluation_id)
+        finally:
+            connection.close()
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def evaluate_all():
+    """Start an evaluation for each strategy without one running. Returns the started evaluations."""
+    started = quant.start_all()
+    if started:
+        dispatch_many([ev.pk for ev in started])
+    return started
+
+
+def dispatch_many(evaluation_ids):
+    """Like ``dispatch``, but one background thread runs them in turn so a laptop isn't swamped."""
+    if not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        for pk in evaluation_ids:
+            evaluate_strategy.delay(pk)
+        return
+
+    def work():
+        try:
+            for pk in evaluation_ids:
+                quant.run_evaluation(pk)
         finally:
             connection.close()
 
@@ -101,7 +126,7 @@ def metric_sections(m):
 
 @admin.register(QuantStrategy)
 class QuantStrategyAdmin(admin.ModelAdmin):
-    list_display = ["strategy", "enabled", "method", "hit_rate", "p_value", "profit_factor", "max_drawdown", "speed", "evaluated"]
+    list_display = ["strategy", "enabled", "method", "hit_rate", "p_value", "profit_factor", "max_drawdown", "speed", "evaluated", "note"]
     list_editable = ["enabled"]
     list_display_links = None
     ordering = ["name"]
@@ -110,16 +135,36 @@ class QuantStrategyAdmin(admin.ModelAdmin):
         sync_settings()
         return super().get_queryset(request)
 
+    def get_urls(self):
+        return [
+            path("evaluate-all/", self.admin_site.admin_view(self.evaluate_all_view), name="quant_quantstrategy_evaluate_all"),
+            *super().get_urls(),
+        ]
+
+    def evaluate_all_view(self, request):
+        """Start an evaluation of every strategy that isn't already being evaluated."""
+        if request.method == "POST" and self.has_change_permission(request):
+            started = evaluate_all()
+            messages.info(request, f"Evaluating {len(started)} strategies in the background; refresh this page in a few minutes."
+                          if started else "Every strategy is already being evaluated.")
+        return redirect("admin:quant_quantstrategy_changelist")
+
     def changelist_view(self, request, extra_context=None):
         extra_context = {"title": "Quant strategies: open one to check its accuracy and speed", **(extra_context or {})}
-        self._latest = {}
-        for ev in QuantEvaluation.objects.filter(status=QuantEvaluation.Status.OK).order_by("strategy", "-finished_at"):
-            self._latest.setdefault(ev.strategy, ev)
+        self._latest, self._last = {}, {}
+        for ev in QuantEvaluation.objects.order_by("strategy", "-started_at"):
+            self._last.setdefault(ev.strategy, ev)
+            if ev.status == QuantEvaluation.Status.OK:
+                self._latest.setdefault(ev.strategy, ev)
         return super().changelist_view(request, extra_context)
 
-    def _metric(self, obj, *path):
+    def _source(self, obj):
+        """The measures the list shows: the replay's, or the live record's when only live calls have settled."""
         ev = getattr(self, "_latest", {}).get(obj.name)
-        value = ev.metrics if ev and ev.metrics else (ev.live if ev else None)
+        return quant.headline(ev) if ev else None
+
+    def _metric(self, obj, *path):
+        value = self._source(obj)
         for key in path:
             value = (value or {}).get(key)
         return value
@@ -157,6 +202,17 @@ class QuantStrategyAdmin(admin.ModelAdmin):
     def evaluated(self, obj):
         ev = getattr(self, "_latest", {}).get(obj.name)
         return ev.finished_at.strftime("%Y-%m-%d %H:%M") if ev else "never"
+
+    @admin.display(description="why blank")
+    def note(self, obj):
+        last = getattr(self, "_last", {}).get(obj.name)
+        if last and last.status == QuantEvaluation.Status.RUNNING:
+            return "evaluating…"
+        if last and last.status == QuantEvaluation.Status.FAILED:
+            return f"last evaluation failed: {last.error[:80]}"
+        if obj.name not in getattr(self, "_latest", {}):
+            return "not evaluated yet: press Evaluate all strategies"
+        return quant.missing_metrics(self._source(obj))
 
     def has_add_permission(self, request):
         return False
@@ -198,6 +254,7 @@ class QuantStrategyAdmin(admin.ModelAdmin):
             "running": running,
             "latest": latest,
             "replay_sections": metric_sections(latest.metrics) if latest else [],
+            "replay_note": quant.missing_metrics(latest.metrics) if latest else "",
             "live_sections": metric_sections(latest.live) if latest else [],
             "pipeline": (latest.live or {}).get("pipeline") if latest else None,
             "trades": latest.trades[:25] if latest else [],

@@ -93,12 +93,21 @@ use a 20-session horizon, since a 1:4.5 target needs room.
 ### Quant section in admin: accuracy and speed per strategy
 
 Django admin has a **Quant** section listing every strategy with its latest hit rate,
-p-value, profit factor, max drawdown and speed. Open one and press **Evaluate accuracy and
-speed** (pick a period and, optionally, symbols). The evaluation runs in the background
-(a Celery worker, or a thread on a laptop in local mode) and the page refreshes until it's done:
+p-value, profit factor, max drawdown and speed. **Evaluate all strategies** (top right) measures
+every one over the past year; or open one and press **Evaluate accuracy and speed** (pick a
+period and, optionally, symbols). Beat also re-evaluates every strategy on Fridays at 04:00,
+`run-local.ps1` evaluates any not measured in the past week, and
+`manage.py evaluate_strategies` does it from the command line and prints the table.
+When a measure is blank, the **why blank** column says why: not evaluated yet, still running,
+failed (with the error), no calls (and, when that's the cause, how much history the strategy
+needs versus the longest saved), calls not settled yet, or no losing calls (profit factor
+unbounded). Evaluations run in the background (a Celery worker, or a thread on a laptop in
+local mode) and the page refreshes until it's done:
 
-- **Replay over history** (per-stock strategies): walk-forward, each day seeing only the bars
-  up to that day, with every call settled exactly like a live prediction (target, stop or horizon).
+- **Replay over history**: walk-forward, each day seeing only the bars up to that day, with every
+  call settled exactly like a live prediction (target, stop or horizon). `pairs`,
+  `basket_reversion` and `pca_leaders` compare stocks with each other, so they replay over all
+  stocks that traded each day together, grouped by sector like a live run.
 - **Accuracy**: hit rate with a 95% confidence interval, the chance level (calling every day the
   same way) and a p-value against it; how calls ended (target, stop, expired).
 - **Forecast vs actual**: for calls with a price target, MAE, RMSE and bias between the target
@@ -108,12 +117,18 @@ speed** (pick a period and, optionally, symbols). The evaluation runs in the bac
   return, CAGR and max drawdown, losing streaks, and a 1,000-run Monte Carlo bootstrap.
 - **Speed**: milliseconds per stock-day for the whole analysis and for the strategy alone,
   sessions until calls resolve, and the live pipeline's time per run and per stock.
-- **Live predictions**: the same measures over the predictions the system actually stored.
-  `pairs`, `basket_reversion` and `pca_leaders` compare stocks with each other, so they are
-  scored on live predictions only.
+- **Live predictions**: the same measures over the predictions the system actually stored. The
+  list shows these when the replay has no settled calls but live predictions do.
 
 Results are kept in `QuantEvaluation` (logic in `modules/analysis/domain/evaluation.py`).
-A one-year replay over all ~350 stocks takes a few minutes (about 1.2 ms per stock-day).
+A one-year replay over all ~350 stocks takes a few minutes (about 1.2 ms per stock-day). A
+pairs replay over the 60 most-traded stocks takes about a minute and a half per year.
+
+**Rule for adding a strategy:** its evaluation metrics must work too. A new strategy has to be
+replayable (`REGISTRY` for per-stock strategies, `CROSS_SECTIONAL` plus a scanner in
+`application/quant.py` for ones that compare stocks) and must make settled calls with a hit
+rate, p-value and profit factor on the synthetic market in `modules/analysis/tests/market.py`.
+`EveryStrategyIsEvaluatedTests` checks every strategy in `DESCRIPTIONS`, so CI fails until it does.
 
 ### Predictions and the live track record
 
