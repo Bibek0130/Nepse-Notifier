@@ -1,0 +1,36 @@
+# The hosted, read-only demo: one container with the dashboard, API and admin, and a SQLite
+# database filled at build time with real NEPSE history (see docs/demo.md).
+#   docker build -f Dockerfile.demo -t nepse-demo . && docker run -p 8000:8000 -e DJANGO_SECURE_COOKIES=false nepse-demo
+
+FROM node:22-slim AS dashboard
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN VITE_DEMO=1 npm run build
+
+FROM python:3.13-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DJANGO_SETTINGS_MODULE=config.settings.demo
+WORKDIR /app
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/ ./
+COPY --from=dashboard /app/dist ./frontend_dist
+RUN python manage.py collectstatic --noinput -v0
+
+# Changes whenever the price archive adds a session, so a redeploy loads the latest prices
+# instead of reusing the database cached from an earlier build.
+ADD https://raw.githubusercontent.com/Aabishkar2/nepse-data/main/data/company-wise/NABIL.csv /tmp/nepse-data-version
+
+# Load two years of prices, analyse the latest sessions, then measure every strategy and run
+# the backtest, so no page or admin metric is empty. verify_demo fails the build if one is.
+RUN python manage.py migrate --noinput -v0 \
+ && python manage.py seed_demo \
+ && python manage.py evaluate_strategies \
+ && python manage.py backtest \
+ && python manage.py create_demo_viewer \
+ && python manage.py verify_demo
+
+EXPOSE 8000
+# One process, so the cache and logins are shared by every request; threads for concurrency.
+CMD gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --timeout 60

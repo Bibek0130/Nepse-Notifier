@@ -1,0 +1,15 @@
+# Render Blueprint for the hosted demo (docs/demo.md). Free plan: sleeps after 15 idle
+# minutes and takes about a minute to wake on the next visit.
+services:
+  - type: web
+    name: nepse-notifier-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile.demo
+    dockerContext: .
+    plan: free
+    region: singapore
+    healthCheckPath: /api/market/status
+    autoDeploy: true
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true

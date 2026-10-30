@@ -1,0 +1,100 @@
+# Stocks loaded into the hosted demo, with their NEPSE sector. Edit to change the demo's universe.
+symbol,sector
+NABIL,Commercial Banks
+NICA,Commercial Banks
+GBIME,Commercial Banks
+EBL,Commercial Banks
+HBL,Commercial Banks
+SCB,Commercial Banks
+NMB,Commercial Banks
+PRVU,Commercial Banks
+KBL,Commercial Banks
+SANIMA,Commercial Banks
+ADBL,Commercial Banks
+CZBIL,Commercial Banks
+MBL,Commercial Banks
+LSL,Commercial Banks
+NBL,Commercial Banks
+SBL,Commercial Banks
+PCBL,Commercial Banks
+SBI,Commercial Banks
+NIMB,Commercial Banks
+MNBBL,Development Banks
+JBBL,Development Banks
+GBBL,Development Banks
+SHINE,Development Banks
+MLBL,Development Banks
+KSBBL,Development Banks
+LBBL,Development Banks
+SADBL,Development Banks
+CORBL,Development Banks
+EDBL,Development Banks
+GFCL,Finance
+ICFC,Finance
+PROFL,Finance
+GUFL,Finance
+MFIL,Finance
+CFCL,Finance
+BFC,Finance
+CBBL,Microfinance
+SKBBL,Microfinance
+NUBL,Microfinance
+DDBL,Microfinance
+SWBBL,Microfinance
+FOWAD,Microfinance
+MERO,Microfinance
+SLBBL,Microfinance
+NHPC,Hydro Power
+CHCL,Hydro Power
+BPCL,Hydro Power
+AKPL,Hydro Power
+API,Hydro Power
+UPPER,Hydro Power
+RHPL,Hydro Power
+NGPL,Hydro Power
+SHPC,Hydro Power
+HDHPC,Hydro Power
+AHPC,Hydro Power
+UMHL,Hydro Power
+RURU,Hydro Power
+SJCL,Hydro Power
+DHPL,Hydro Power
+HPPL,Hydro Power
+NLIC,Life Insurance
+LICN,Life Insurance
+ALICL,Life Insurance
+CLI,Life Insurance
+NLICL,Life Insurance
+SNLI,Life Insurance
+HLI,Life Insurance
+ILI,Life Insurance
+RNLI,Life Insurance
+PMLI,Life Insurance
+NICL,Non Life Insurance
+SICL,Non Life Insurance
+PRIN,Non Life Insurance
+IGI,Non Life Insurance
+NIL,Non Life Insurance
+SALICO,Non Life Insurance
+HEI,Non Life Insurance
+SGIC,Non Life Insurance
+RBCL,Non Life Insurance
+NLG,Non Life Insurance
+HRL,Reinsurance
+NRIC,Reinsurance
+SHL,Hotels And Tourism
+TRH,Hotels And Tourism
+OHL,Hotels And Tourism
+CGH,Hotels And Tourism
+KDL,Hotels And Tourism
+SHIVM,Manufacturing And Processing
+UNL,Manufacturing And Processing
+HDL,Manufacturing And Processing
+BNT,Manufacturing And Processing
+SONA,Manufacturing And Processing
+CIT,Investment
+HIDCL,Investment
+NIFRA,Investment
+ENL,Investment
+NRN,Investment
+NTC,Others
