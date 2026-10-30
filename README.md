@@ -227,6 +227,12 @@ Star a stock (☆) on its page or in Quotes to add it to your watchlist. The Mar
 
 Charts use [lightweight-charts](https://github.com/tradingview/lightweight-charts) and follow the OS light or dark setting.
 
+## Hosted demo
+
+A read-only copy with real NEPSE prices, for showing the project: one container on Render's free
+plan, built from `Dockerfile.demo` and `render.yaml`. See [docs/demo.md](docs/demo.md) for how to put
+it online.
+
 ## Run with Docker
 
 ```bash

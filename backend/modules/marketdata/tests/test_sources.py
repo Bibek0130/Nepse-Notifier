@@ -61,3 +61,42 @@ class MeroLaganiTests(SimpleTestCase):
         self.assertEqual(MeroLaganiSource.parse_history({"s": "no_data"}), [])
         with self.assertRaises(SourceError):
             MeroLaganiSource.parse_history({"s": "ok", "t": [1]})
+
+
+class NepseDataTests(SimpleTestCase):
+    CSV = (
+        "published_date,open,high,low,close,per_change,traded_quantity,traded_amount,status\n"
+        "2026-10-28,542.0,547.0,542.0,545.0,0.55,48530.0,26428487.1,1\n"
+        "2026-10-27,543.0,545.0,540.0,542.0,-0.18,26465.0,14363999.9,-1\n"  # out of order
+        "2026-10-26,nan,545.0,540.0,542.0,nan,100.0,54200.0,0\n"  # missing open
+        "2026-10-25,0.0,545.0,540.0,542.0,0,0.0,0.0,0\n"  # no trade
+        "not-a-date,1,1,1,1,0,1,1,0\n"
+        "2026-10-29,518.0,552.9,518.0,552.0,1.28,72855.0,nan,1\n"
+        "2026-10-29,520.0,552.9,518.0,551.0,1.10,72855.0,40132445.7,1\n"  # listed twice: last row wins
+    )
+
+    def test_parses_sorts_and_skips_bad_rows(self):
+        from modules.marketdata.infrastructure.sources.nepse_data import NepseDataSource
+
+        bars = NepseDataSource.parse_history(self.CSV)
+        self.assertEqual([b.date for b in bars], [date(2026, 10, 27), date(2026, 10, 28), date(2026, 10, 29)])
+        last = bars[-1]
+        self.assertEqual((last.open, last.close, last.volume, last.turnover), (Decimal("520.0"), Decimal("551.0"), 72855, Decimal("40132445.7")))
+        self.assertEqual(bars[0].turnover, Decimal("14363999.9"))
+
+    def test_missing_columns_raise(self):
+        from modules.marketdata.infrastructure.sources.nepse_data import NepseDataSource
+
+        with self.assertRaises(SourceError):
+            NepseDataSource.parse_history("date,price\n2026-10-29,500\n")
+
+    def test_fetch_keeps_only_the_requested_window(self):
+        from unittest import mock
+
+        from modules.marketdata.infrastructure.sources.nepse_data import NepseDataSource
+
+        source = NepseDataSource(session=mock.Mock())
+        source.session.get.return_value = mock.Mock(text=self.CSV, status_code=200, raise_for_status=lambda: None)
+        bars = source.fetch_history("NABIL", date(2026, 10, 28), date(2026, 10, 28))
+        self.assertEqual([b.date for b in bars], [date(2026, 10, 28)])
+        self.assertIn("/NABIL.csv", source.session.get.call_args.args[0])

@@ -7,3 +7,4 @@ psycopg[binary]>=3.2
 requests>=2.32
 beautifulsoup4>=4.12
 gunicorn>=23
+whitenoise>=6.7

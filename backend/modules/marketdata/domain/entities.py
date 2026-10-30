@@ -42,6 +42,7 @@ class HistoricalBar:
     low: Decimal
     close: Decimal
     volume: int = 0
+    turnover: Decimal | None = None
 
 
 @dataclass(frozen=True)

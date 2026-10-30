@@ -48,10 +48,11 @@ def history_is_short(min_sessions, days=DEFAULT_DAYS):
     return longest < min_sessions and not covered
 
 
-def backfill_history(symbols=None, days=DEFAULT_DAYS, source=None):
+def backfill_history(symbols=None, days=DEFAULT_DAYS, source=None, publish=True):
     """Load ``days`` of daily bars for ``symbols`` (default: every active instrument).
 
     A symbol that fails is recorded and skipped, so one bad ticker doesn't stop the run.
+    With ``publish=False`` no CandlesIngested event is sent, so nothing is analysed yet.
     """
     source = source or history_source()
     if symbols is None:
@@ -79,6 +80,7 @@ def backfill_history(symbols=None, days=DEFAULT_DAYS, source=None):
                 low=b.low,
                 close=b.close,
                 volume=b.volume,
+                turnover=b.turnover,
             )
             for b in bars
         ]
@@ -103,6 +105,6 @@ def backfill_history(symbols=None, days=DEFAULT_DAYS, source=None):
         run.status = IngestionRun.Status.OK
     with transaction.atomic():
         run.save()
-        if loaded:
+        if loaded and publish:
             events.publish(CandlesIngested(run_id=run.pk, timeframe=Timeframe.DAILY.value, trading_date=end.isoformat(), symbols=sorted(loaded)))
     return run

@@ -1,4 +1,9 @@
+import { marketApi } from "../api/client";
+import { useApi } from "../hooks/useApi";
 import { useThemePreference } from "../hooks/useColorScheme";
+
+// Set VITE_DEMO=1 when building the hosted demo (Dockerfile.demo).
+const DEMO = import.meta.env.VITE_DEMO === "1";
 
 const NAV = [
   ["strategies", "Strategies", "#/"],
@@ -30,7 +35,19 @@ export default function Layout({ page, children }) {
           </button>
         </div>
       </header>
+      {DEMO && <DemoNotice />}
       <main>{children}</main>
     </>
+  );
+}
+
+function DemoNotice() {
+  const { data } = useApi(() => marketApi.summary(), []);
+  const asOf = data?.as_of ? new Date(data.as_of).toLocaleDateString(undefined, { dateStyle: "medium" }) : null;
+  return (
+    <p className="demo-notice" role="note">
+      Demo with real NEPSE prices{asOf ? ` up to ${asOf}` : ""}. Read-only: live fetching and emails are off.
+      {" "}<a href="/admin/">Admin (view only)</a>
+    </p>
   );
 }

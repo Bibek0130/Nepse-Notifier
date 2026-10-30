@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{# Django's own base_site.html, plus busy buttons on every admin page. #}
+{# Django's own base_site.html, plus busy buttons on every admin page and, in the hosted demo, a read-only notice. #}
 
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
 
@@ -10,6 +10,13 @@
 {% if user.is_anonymous %}
   {% include "admin/color_theme_toggle.html" %}
 {% endif %}
+{% endblock %}
+
+{% block messages %}
+{% if demo_mode %}
+<ul class="messagelist"><li class="info">Read-only demo{% if user.is_anonymous %}: log in with username <strong>{{ demo_username }}</strong> and password <strong>{{ demo_password }}</strong> to look around. Nothing can be changed{% else %}: you can look at everything but change nothing{% endif %}. <a href="/">Back to the dashboard</a></li></ul>
+{% endif %}
+{{ block.super }}
 {% endblock %}
 
 {% block nav-global %}{% endblock %}
