@@ -32,5 +32,7 @@ RUN python manage.py migrate --noinput -v0 \
  && python manage.py verify_demo
 
 EXPOSE 8000
+# The admin login is (re)made at start, so DEMO_VIEWER_USERNAME/PASSWORD set on the host apply:
+# hosts like Render give their environment variables to the running app, not to the build.
 # One process, so the cache and logins are shared by every request; threads for concurrency.
-CMD gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --timeout 60
+CMD python manage.py create_demo_viewer && exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --timeout 60

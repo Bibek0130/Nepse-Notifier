@@ -72,5 +72,6 @@ Koyeb, Fly.io or Railway. Set `DJANGO_ALLOWED_HOSTS` to the demo's hostname and
   archive (`data/company-wise/SYMBOL.csv`).
 - **Days of history and sessions analysed:** `seed_demo --days 730 --replay-sessions 20` in
   `Dockerfile.demo`.
-- **Admin login:** set `DEMO_VIEWER_USERNAME` and `DEMO_VIEWER_PASSWORD` on the Render
-  service. They are shown on the login page.
+- **Admin login:** set `DEMO_VIEWER_USERNAME` and `DEMO_VIEWER_PASSWORD` in the Render
+  service's **Environment** and save. The login is made each time the demo starts, so a
+  restart is enough. Both are shown on the login page, and the login can only view.
